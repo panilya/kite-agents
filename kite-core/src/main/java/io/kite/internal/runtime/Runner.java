@@ -7,6 +7,7 @@ import io.kite.AgentRef;
 import io.kite.Event;
 import io.kite.GuardResult;
 import io.kite.Reply;
+import io.kite.ToolFailure;
 import io.kite.model.ChatChunk;
 import io.kite.model.ChatRequest;
 import io.kite.model.ChatResponse;
@@ -137,11 +138,9 @@ public final class Runner {
                 RunnerCore.ToolCallOutcome outcome;
                 try {
                     outcome = core.executeToolCall(current, call.name(), call.argsJson(), ctx, delegateRunner);
-                } catch (Exception e) {
-                    outcome = new RunnerCore.ToolCallOutcome(
-                            core.codec().writeValueAsString(
-                                    Map.of("error", e.getMessage() == null ? "tool failed" : e.getMessage())),
-                            Usage.ZERO);
+                } catch (ToolFailure f) {
+                    core.trace(tctx, new TraceEvent.Error(Instant.now(), current.name(), f.getMessage(), f));
+                    outcome = new RunnerCore.ToolCallOutcome(errorPayload(f), Usage.ZERO);
                 }
                 String result = outcome.resultJson();
                 accumulatedUsage = accumulatedUsage.plus(outcome.usage());
@@ -263,11 +262,10 @@ public final class Runner {
                     RunnerCore.ToolCallOutcome outcome;
                     try {
                         outcome = core.executeToolCall(current, call.name(), call.argsJson(), ctx, delegateRunner);
-                    } catch (Exception e) {
-                        outcome = new RunnerCore.ToolCallOutcome(
-                                core.codec().writeValueAsString(
-                                        Map.of("error", e.getMessage() == null ? "tool failed" : e.getMessage())),
-                                Usage.ZERO);
+                    } catch (ToolFailure f) {
+                        out.accept(new Event.Error(current.name(), f));
+                        core.trace(tctx, new TraceEvent.Error(Instant.now(), current.name(), f.getMessage(), f));
+                        outcome = new RunnerCore.ToolCallOutcome(errorPayload(f), Usage.ZERO);
                     }
                     String result = outcome.resultJson();
                     accumulatedUsage = accumulatedUsage.plus(outcome.usage());
@@ -314,6 +312,13 @@ public final class Runner {
             case ChatChunk.Done d -> accum.usage = d.usage();
             case ChatChunk.Error err -> out.accept(new Event.Error(agentName, err.cause() != null ? err.cause() : new RuntimeException(err.message())));
         }
+    }
+
+    private String errorPayload(ToolFailure f) {
+        return core.codec().writeValueAsString(Map.of("error", Map.of(
+                "type", f.kind(),
+                "tool", f.toolName(),
+                "message", f.getMessage() == null ? "" : f.getMessage())));
     }
 
     private static AgentRef refOf(Agent<?> agent) {

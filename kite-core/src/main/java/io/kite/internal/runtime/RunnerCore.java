@@ -7,8 +7,10 @@ import io.kite.ConversationStore;
 import io.kite.Guard;
 import io.kite.GuardResult;
 import io.kite.Reply;
+import io.kite.RunInterruptedException;
 import io.kite.Tool;
 import io.kite.ToolChoice;
+import io.kite.ToolFailure;
 import io.kite.internal.json.JsonCodec;
 import io.kite.model.ChatRequest;
 import io.kite.model.Message;
@@ -25,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -208,10 +211,18 @@ public final class RunnerCore {
                                            DelegateRunner delegateRunner) {
         Tool tool = findTool(agent, toolName);
         if (tool == null) {
-            throw new IllegalStateException("Tool '" + toolName + "' not registered on agent '" + agent.name() + "'");
+            throw new ToolFailure.NotRegistered(toolName,
+                    "Tool '" + toolName + "' not registered on agent '" + agent.name() + "'");
         }
         if (tool.kind() == Tool.Kind.DELEGATE) {
-            return executeDelegate(tool, argsJson, ctx, delegateRunner);
+            try {
+                return executeDelegate(tool, argsJson, ctx, delegateRunner);
+            } catch (RunInterruptedException | ToolFailure e) {
+                throw e;
+            } catch (RuntimeException e) {
+                throw new ToolFailure.ThrownByTool(tool.name(),
+                        "Delegate '" + tool.name() + "' failed: " + Throwables.describe(e), e);
+            }
         }
         var invoker = tool.invoker();
         Future<String> f = vexec.submit(() -> invoker.invoke(ctx, argsJson));
@@ -219,14 +230,18 @@ public final class RunnerCore {
             return new ToolCallOutcome(f.get(toolTimeout.toMillis(), TimeUnit.MILLISECONDS), Usage.ZERO);
         } catch (TimeoutException e) {
             f.cancel(true);
-            throw new RuntimeException("Tool '" + toolName + "' timed out after " + toolTimeout, e);
+            throw new ToolFailure.Timeout(toolName,
+                    "Tool '" + toolName + "' timed out after " + toolTimeout, e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             f.cancel(true);
-            throw new RuntimeException("Tool '" + toolName + "' interrupted", e);
-        } catch (Exception e) {
-            Throwable cause = e.getCause() == null ? e : e.getCause();
-            throw new RuntimeException("Tool '" + toolName + "' failed: " + cause.getMessage(), cause);
+            throw new RunInterruptedException(
+                    "Run interrupted during tool '" + toolName + "'", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            if (cause instanceof ToolFailure tf) throw tf;
+            throw new ToolFailure.ThrownByTool(toolName,
+                    "Tool '" + toolName + "' failed: " + Throwables.describe(cause), cause);
         }
     }
 

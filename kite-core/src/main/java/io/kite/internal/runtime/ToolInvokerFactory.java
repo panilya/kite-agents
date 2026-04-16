@@ -2,11 +2,13 @@ package io.kite.internal.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.kite.Tool;
+import io.kite.ToolFailure;
 import io.kite.Tools;
 import io.kite.annotations.Ctx;
 import io.kite.annotations.Description;
 import io.kite.annotations.ToolParam;
 import io.kite.internal.json.JsonCodec;
+import io.kite.internal.json.JsonCodec.JsonCodecException;
 import io.kite.schema.JsonSchemaGenerator;
 import io.kite.schema.SchemaNode;
 
@@ -142,25 +144,32 @@ public final class ToolInvokerFactory {
 
         @Override
         public String invoke(Object context, String argsJson) throws Exception {
-            JsonNode node = JsonCodec.shared().readTreeOrEmpty(argsJson);
-            Object[] callArgs = new Object[paramTypes.length];
-            for (int i = 0; i < paramTypes.length; i++) {
-                if (i == ctxIndex) {
-                    callArgs[i] = context;
-                    continue;
+            Object[] callArgs;
+            try {
+                JsonNode node = JsonCodec.shared().readTreeOrEmpty(argsJson);
+                callArgs = new Object[paramTypes.length];
+                for (int i = 0; i < paramTypes.length; i++) {
+                    if (i == ctxIndex) {
+                        callArgs[i] = context;
+                        continue;
+                    }
+                    JsonNode field = node.get(paramNames[i]);
+                    if (field == null || field.isNull()) {
+                        callArgs[i] = defaultFor(paramTypes[i]);
+                    } else {
+                        callArgs[i] = JsonCodec.shared().treeToValue(field, paramTypes[i]);
+                    }
                 }
-                JsonNode field = node.get(paramNames[i]);
-                if (field == null || field.isNull()) {
-                    callArgs[i] = defaultFor(paramTypes[i]);
-                } else {
-                    callArgs[i] = JsonCodec.shared().treeToValue(field, paramTypes[i]);
-                }
+            } catch (JsonCodecException e) {
+                throw new ToolFailure.BadArguments(name,
+                        "Tool '" + name + "' received invalid arguments: " + Throwables.describe(e), e);
             }
             Object result;
             try {
                 result = handle.invokeWithArguments(callArgs);
             } catch (Throwable t) {
-                throw new ToolExecutionException("Tool '" + name + "' threw: " + t.getMessage(), t);
+                throw new ToolFailure.ThrownByTool(name,
+                        "Tool '" + name + "' threw: " + Throwables.describe(t), t);
             }
             if (result == null) return "null";
             if (result instanceof String s) return JsonCodec.shared().writeValueAsString(s);
@@ -179,9 +188,4 @@ public final class ToolInvokerFactory {
         }
     }
 
-    public static final class ToolExecutionException extends RuntimeException {
-        public ToolExecutionException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
 }
