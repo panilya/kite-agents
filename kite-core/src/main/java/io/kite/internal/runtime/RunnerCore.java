@@ -214,7 +214,7 @@ public final class RunnerCore {
             return executeDelegate(tool, argsJson, ctx, delegateRunner);
         }
         var invoker = tool.invoker();
-        Future<String> f = vexec.submit(ContextScope.capturingCallable(() -> invoker.invoke(ctx, argsJson)));
+        Future<String> f = vexec.submit(() -> invoker.invoke(ctx, argsJson));
         try {
             return new ToolCallOutcome(f.get(toolTimeout.toMillis(), TimeUnit.MILLISECONDS), Usage.ZERO);
         } catch (TimeoutException e) {
@@ -283,16 +283,29 @@ public final class RunnerCore {
         return null;
     }
 
-    public <T> GuardResult runInputBlocking(Agent<T> agent, T ctx, String input) {
-        return guardExecutor.runBlocking(agent.inputGuards(), ctx, input);
+    public <T> GuardResult runInputBlocking(Agent<T> agent, T ctx, String input, TraceContext tctx) {
+        return guardExecutor.runBlocking(agent.inputGuards(), ctx, input,
+                (g, r) -> emitGuardCheck(tctx, agent.name(), g, r));
     }
 
-    public <T> GuardResult runInputParallel(Agent<T> agent, T ctx, String input) {
-        return guardExecutor.runParallel(agent.inputGuards(), ctx, input);
+    public <T> GuardResult runInputParallel(Agent<T> agent, T ctx, String input, TraceContext tctx) {
+        return guardExecutor.runParallel(agent.inputGuards(), ctx, input,
+                (g, r) -> emitGuardCheck(tctx, agent.name(), g, r));
     }
 
-    public <T> GuardResult runOutput(Agent<T> agent, T ctx, String output) {
-        return guardExecutor.runAfter(agent.outputGuards(), ctx, output);
+    public <T> GuardResult runOutput(Agent<T> agent, T ctx, String output, TraceContext tctx) {
+        return guardExecutor.runAfter(agent.outputGuards(), ctx, output,
+                (g, r) -> emitGuardCheck(tctx, agent.name(), g, r));
+    }
+
+    private void emitGuardCheck(TraceContext tctx, String agentName, Guard<?> g, GuardResult r) {
+        trace(tctx, new TraceEvent.GuardCheck(
+                Instant.now(),
+                agentName,
+                g.name(),
+                g.phase().name(),
+                r.passing(),
+                r.message()));
     }
 
     public TraceContext startTrace(Agent<?> rootAgent, String conversationId) {
@@ -315,8 +328,19 @@ public final class RunnerCore {
     }
 
     private void safeTrace(Runnable r) {
-        try { r.run(); } catch (Throwable ignored) {}
+        try {
+            r.run();
+        } catch (Exception e) {
+            if (tracerFailureLogged.compareAndSet(false, true)) {
+                System.err.println("[kite] tracing provider " + tracer.getClass().getName()
+                        + " threw " + e.getClass().getSimpleName() + ": " + e.getMessage()
+                        + " (further failures suppressed)");
+            }
+        }
     }
+
+    private final java.util.concurrent.atomic.AtomicBoolean tracerFailureLogged =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     public JsonCodec codec() {
         return JsonCodec.shared();
@@ -330,18 +354,28 @@ public final class RunnerCore {
      * response get a {@code skipped} marker so the target agent can see they were observed but
      * not executed (important when the LLM emits a route alongside a real tool call like
      * {@code refund} — the target must not assume the refund already ran).
+     *
+     * <p>Returns the per-call routing outcomes so the caller can emit observability events for
+     * each one (trace events on the non-streaming path, {@link io.kite.Event} on streaming).
      */
-    public void appendRoutedToolOutputs(List<Message> history,
-                                        List<Message.ToolCallRef> toolCalls,
-                                        Agent<?> routeTarget) {
+    public List<RoutedCallOutcome> appendRoutedToolOutputs(List<Message> history,
+                                                           List<Message.ToolCallRef> toolCalls,
+                                                           Agent<?> routeTarget) {
         String takenCallName = routeToolName(routeTarget.name());
         String takenOutput = codec().writeValueAsString(Map.of("transferred_to", routeTarget.name()));
         String skippedOutput = codec().writeValueAsString(Map.of(
                 "skipped", true,
                 "reason", "transferred_to_" + routeTarget.name()));
+        List<RoutedCallOutcome> outcomes = new ArrayList<>(toolCalls.size());
         for (var call : toolCalls) {
-            String output = takenCallName.equals(call.name()) ? takenOutput : skippedOutput;
+            boolean taken = takenCallName.equals(call.name());
+            String output = taken ? takenOutput : skippedOutput;
             history.add(new Message.Tool(call.id(), call.name(), output));
+            outcomes.add(new RoutedCallOutcome(call, taken, output));
         }
+        return outcomes;
     }
+
+    /** Per-call result from {@link #appendRoutedToolOutputs}. */
+    public record RoutedCallOutcome(Message.ToolCallRef call, boolean taken, String resultJson) {}
 }

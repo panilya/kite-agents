@@ -28,8 +28,8 @@ public final class Agent<T> {
     final Function<T, List<Agent<T>>> dynamicRoutes;
     final List<Guard<T>> inputGuards;
     final List<Guard<T>> outputGuards;
-    final Class<?> outputType;           // nullable; must be a record
-    final SchemaNode outputSchema;       // nullable; built from outputType at build time
+    final Class<? extends Record> outputType;   // nullable
+    final SchemaNode outputSchema;              // nullable; built from outputType at build time
     final Double temperature;
     final Integer maxTurns;
     final ToolChoice toolChoice;                          // nullable — provider default when null
@@ -37,6 +37,7 @@ public final class Agent<T> {
     final Boolean parallelToolCalls;                      // nullable — provider default when null
     final Class<T> contextType;          // never null — Void.class for no-context agents
 
+    /** Internal — use {@link #builder()} / {@link #builder(Class)}. */
     Agent(String model,
           String name,
           String description,
@@ -46,7 +47,7 @@ public final class Agent<T> {
           Function<T, List<Agent<T>>> dynamicRoutes,
           List<Guard<T>> inputGuards,
           List<Guard<T>> outputGuards,
-          Class<?> outputType,
+          Class<? extends Record> outputType,
           SchemaNode outputSchema,
           Double temperature,
           Integer maxTurns,
@@ -77,7 +78,7 @@ public final class Agent<T> {
     public String name() { return name; }
     public String description() { return description; }
     public Class<T> contextType() { return contextType; }
-    public Class<?> outputType() { return outputType; }
+    public Class<? extends Record> outputType() { return outputType; }
     public SchemaNode outputSchema() { return outputSchema; }
     public List<Tool> tools() { return tools; }
     public List<Agent<T>> routes() { return routes; }

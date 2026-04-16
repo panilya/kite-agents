@@ -45,8 +45,12 @@ public final class Guard<T> {
     public Mode mode() { return mode; }
     public StreamBehavior streamBehavior() { return streamBehavior; }
 
+    /**
+     * Internal — invoked by the runtime only. The unchecked cast is safe because the runtime
+     * resolves {@code context} from the agent's typed context (or {@code null} for {@code Void}).
+     */
     @SuppressWarnings("unchecked")
-    public GuardResult check(Object context, String subject) {
+    GuardResult check(Object context, String subject) {
         GuardResult r = check.apply((T) context, subject);
         return r.withMetadata(name, phase == Phase.INPUT ? GuardResult.Phase.INPUT : GuardResult.Phase.OUTPUT, subject);
     }

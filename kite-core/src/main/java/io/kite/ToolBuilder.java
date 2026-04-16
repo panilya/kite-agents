@@ -55,10 +55,9 @@ public final class ToolBuilder {
     }
 
     /** Execute with context — context is the first parameter. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public <T, R> ToolBuilder executeWithContext(BiFunction<T, Map<String, Object>, R> fn) {
-        @SuppressWarnings("unchecked")
-        BiFunction<Object, Map<String, Object>, Object> erased = (ctx, args) -> ((BiFunction<Object, Map<String, Object>, Object>) (BiFunction<?, ?, ?>) fn).apply(ctx, args);
-        this.ctxFn = erased;
+        this.ctxFn = (BiFunction) fn;
         this.noCtxFn = null;
         return this;
     }

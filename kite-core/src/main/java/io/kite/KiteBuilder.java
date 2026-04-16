@@ -65,7 +65,7 @@ public final class KiteBuilder {
         var core = new RunnerCore(
                 List.copyOf(providers), store, effectiveTracer, guardExec, maxTurns, toolTimeout, vexec);
         var runner = new Runner(core);
-        return new Kite(List.copyOf(providers), vexec, runner);
+        return new Kite(List.copyOf(providers), vexec, runner, effectiveTracer);
     }
 
     private static TracingProvider defaultTracer() {

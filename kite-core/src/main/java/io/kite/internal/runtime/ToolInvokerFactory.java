@@ -2,6 +2,7 @@ package io.kite.internal.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.kite.Tool;
+import io.kite.Tools;
 import io.kite.annotations.Ctx;
 import io.kite.annotations.Description;
 import io.kite.annotations.ToolParam;
@@ -98,18 +99,29 @@ public final class ToolInvokerFactory {
         Class<?>[] paramTypes = method.getParameterTypes();
         String[] paramNames = new String[parameters.length];
         for (int i = 0; i < parameters.length; i++) {
+            if (i == ctxIndex) {
+                paramNames[i] = null;   // injected, not exposed to LLM
+                continue;
+            }
             ToolParam tp = parameters[i].getAnnotation(ToolParam.class);
             if (tp != null && !tp.name().isEmpty()) {
                 paramNames[i] = tp.name();
             } else {
-                paramNames[i] = parameters[i].getName();
+                String n = parameters[i].getName();
+                if (n.matches("arg\\d+")) {
+                    throw new IllegalArgumentException(
+                            "@Tool method " + method + " parameter #" + i + " has synthetic name '" + n
+                                    + "'. Compile with -parameters or annotate with @ToolParam(name=\"...\")"
+                                    + " so the LLM sees a meaningful argument name.");
+                }
+                paramNames[i] = n;
             }
         }
 
         int ctxIdxFinal = ctxIndex;
         ToolInvoker invoker = new MethodHandleInvoker(name, handle, paramTypes, paramNames, ctxIdxFinal);
         boolean usesContext = ctxIndex >= 0;
-        return new Tool(name, description, schema, invoker, usesContext, Tool.Kind.FUNCTION, null, null);
+        return Tools.newFunctionTool(name, description, schema, invoker, usesContext);
     }
 
     /** ToolInvoker backed by a method handle bound to a bean instance. */

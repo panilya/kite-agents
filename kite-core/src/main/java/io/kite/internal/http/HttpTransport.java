@@ -6,6 +6,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 
@@ -16,21 +17,28 @@ import java.util.stream.Stream;
  * <p>Shared across providers. Holds one client per instance; connection reuse is managed by
  * the JDK (HTTP/2 multiplexing on one connection per origin).
  */
-public final class HttpTransport {
+public final class HttpTransport implements AutoCloseable {
 
     private final HttpClient client;
+    private final ExecutorService executor;
 
     public HttpTransport() {
         this(Duration.ofSeconds(10));
     }
 
     public HttpTransport(Duration connectTimeout) {
+        this.executor = Executors.newVirtualThreadPerTaskExecutor();
         this.client = HttpClient.newBuilder()
                 .connectTimeout(connectTimeout)
                 .version(HttpClient.Version.HTTP_2)
                 .followRedirects(HttpClient.Redirect.NEVER)
-                .executor(Executors.newVirtualThreadPerTaskExecutor())
+                .executor(executor)
                 .build();
+    }
+
+    @Override
+    public void close() {
+        executor.shutdown();
     }
 
     public HttpResponse<String> postJson(URI url, Map<String, String> headers, String body, Duration timeout) {

@@ -2,6 +2,7 @@ package io.kite;
 
 import io.kite.internal.runtime.Runner;
 import io.kite.model.ModelProvider;
+import io.kite.tracing.TracingProvider;
 
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -19,11 +20,13 @@ public final class Kite implements AutoCloseable {
     private final List<ModelProvider> providers;
     private final ExecutorService vexec;
     private final Runner runner;
+    private final TracingProvider tracer;
 
-    Kite(List<ModelProvider> providers, ExecutorService vexec, Runner runner) {
+    Kite(List<ModelProvider> providers, ExecutorService vexec, Runner runner, TracingProvider tracer) {
         this.providers = providers;
         this.vexec = vexec;
         this.runner = runner;
+        this.tracer = tracer;
     }
 
     public static KiteBuilder builder() {
@@ -72,6 +75,12 @@ public final class Kite implements AutoCloseable {
 
     @Override
     public void close() {
+        try {
+            tracer.close();
+        } catch (Exception e) {
+            System.err.println("[kite] tracer " + tracer.getClass().getName()
+                    + " failed to close: " + e.getMessage());
+        }
         vexec.shutdown();
     }
 }

@@ -29,7 +29,7 @@ public final class AgentBuilder<T> {
     private Function<T, List<Agent<T>>> dynamicRoutes;
     private final List<Guard<T>> inputGuards = new ArrayList<>();
     private final List<Guard<T>> outputGuards = new ArrayList<>();
-    private Class<?> outputType;
+    private Class<? extends Record> outputType;
     private SchemaNode outputSchema;
     private Double temperature;
     private Integer maxTurns;
@@ -209,8 +209,15 @@ public final class AgentBuilder<T> {
                         "duplicate tool name '" + t.name() + "' on agent '" + name + "'");
             }
         }
+        Set<String> routeTargetNames = new HashSet<>();
         Set<String> routeToolNames = new HashSet<>();
         for (Agent<T> r : routes) {
+            if (!routeTargetNames.add(r.name())) {
+                throw new IllegalStateException(
+                        "duplicate route target name '" + r.name() + "' on agent '" + name
+                                + "'. Use distinct .name(...) values on routed agents so transfer_to_<name>"
+                                + " tools are unambiguous.");
+            }
             routeToolNames.add(RunnerCore.routeToolName(r.name()));
         }
         for (Tool t : tools) {

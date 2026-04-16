@@ -31,15 +31,17 @@ public final class Tool {
     /**
      * Internal constructor. External users should use {@link #create(String)} or the
      * {@code @Tool} annotation on a POJO method passed to {@code AgentBuilder.tools(bean)}.
+     * Runtime callers in {@code io.kite.internal.runtime} use {@link Tools#newFunctionTool}
+     * instead of invoking this directly.
      */
-    public Tool(String name,
-                String description,
-                SchemaNode paramsSchema,
-                ToolInvoker invoker,
-                boolean usesContext,
-                Kind kind,
-                Agent<?> routeTarget,
-                Function<Reply, String> outputExtractor) {
+    Tool(String name,
+         String description,
+         SchemaNode paramsSchema,
+         ToolInvoker invoker,
+         boolean usesContext,
+         Kind kind,
+         Agent<?> routeTarget,
+         Function<Reply, String> outputExtractor) {
         this.name = Objects.requireNonNull(name, "name");
         this.description = description == null ? "" : description;
         this.paramsSchema = paramsSchema;

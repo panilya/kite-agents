@@ -66,9 +66,9 @@ public final class Runner {
     }
 
     private <T> Reply executeLoop(Agent<T> rootAgent, String input, String conversationId, T ctx, TraceContext tctx) {
-        GuardResult blocking = core.runInputBlocking(rootAgent, ctx, input);
+        GuardResult blocking = core.runInputBlocking(rootAgent, ctx, input, tctx);
         if (blocking.blocked()) return Reply.blocked(blocking, refOf(rootAgent), Usage.ZERO, tctx.traceId(), List.of());
-        GuardResult parallel = core.runInputParallel(rootAgent, ctx, input);
+        GuardResult parallel = core.runInputParallel(rootAgent, ctx, input, tctx);
         if (parallel.blocked()) return Reply.blocked(parallel, refOf(rootAgent), Usage.ZERO, tctx.traceId(), List.of());
 
         RunnerCore.DelegateRunner delegateRunner = (d, i, c) -> runDelegate(d, i, c, tctx);
@@ -99,7 +99,7 @@ public final class Runner {
 
             if (!resp.hasToolCalls()) {
                 // Terminal response.
-                GuardResult after = core.runOutput(current, ctx, lastText);
+                GuardResult after = core.runOutput(current, ctx, lastText, tctx);
                 if (after.blocked()) {
                     return Reply.blocked(after, refOf(current), accumulatedUsage, tctx.traceId(), List.of());
                 }
@@ -118,7 +118,13 @@ public final class Runner {
             }
             if (routeTarget != null) {
                 core.trace(tctx, new TraceEvent.Transfer(Instant.now(), current.name(), routeTarget.name()));
-                core.appendRoutedToolOutputs(history, resp.toolCalls(), routeTarget);
+                var outcomes = core.appendRoutedToolOutputs(history, resp.toolCalls(), routeTarget);
+                for (var o : outcomes) {
+                    if (!o.taken()) {
+                        core.trace(tctx, new TraceEvent.ToolResult(
+                                Instant.now(), current.name(), o.call().name(), o.resultJson(), Duration.ZERO));
+                    }
+                }
                 current = routeTarget;
                 toolChoiceSatisfied = false;
                 continue;
@@ -146,6 +152,7 @@ public final class Runner {
             toolChoiceSatisfied = true;
         }
 
+        core.saveHistory(conversationId, history);
         return Reply.maxTurns(lastText, refOf(current), accumulatedUsage, tctx.traceId(), List.of());
     }
 
@@ -161,7 +168,7 @@ public final class Runner {
         };
 
         try {
-            GuardResult blocking = core.runInputBlocking(rootAgent, ctx, input);
+            GuardResult blocking = core.runInputBlocking(rootAgent, ctx, input, tctx);
             if (blocking.blocked()) {
                 var blockedEvent = new Event.Blocked(rootAgent.name(), blocking.guard(), blocking.message());
                 out.accept(blockedEvent);
@@ -169,7 +176,7 @@ public final class Runner {
                 out.accept(new Event.Done(rootAgent.name(), reply));
                 return;
             }
-            GuardResult parallel = core.runInputParallel(rootAgent, ctx, input);
+            GuardResult parallel = core.runInputParallel(rootAgent, ctx, input, tctx);
             if (parallel.blocked()) {
                 out.accept(new Event.Blocked(rootAgent.name(), parallel.guard(), parallel.message()));
                 var reply = Reply.blocked(parallel, refOf(rootAgent), Usage.ZERO, tctx.traceId(), List.copyOf(transcript));
@@ -210,7 +217,7 @@ public final class Runner {
                 lastText = fakeResp.content();
 
                 if (!fakeResp.hasToolCalls()) {
-                    GuardResult after = core.runOutput(current, ctx, lastText);
+                    GuardResult after = core.runOutput(current, ctx, lastText, tctx);
                     if (after.blocked()) {
                         out.accept(new Event.Blocked(current.name(), after.guard(), after.message()));
                         var reply = Reply.blocked(after, refOf(current), accumulatedUsage, tctx.traceId(), List.copyOf(transcript));
@@ -235,7 +242,15 @@ public final class Runner {
                 if (routeTarget != null) {
                     out.accept(new Event.Transfer(current.name(), routeTarget.name()));
                     core.trace(tctx, new TraceEvent.Transfer(Instant.now(), current.name(), routeTarget.name()));
-                    core.appendRoutedToolOutputs(history, fakeResp.toolCalls(), routeTarget);
+                    var outcomes = core.appendRoutedToolOutputs(history, fakeResp.toolCalls(), routeTarget);
+                    for (var o : outcomes) {
+                        if (!o.taken()) {
+                            out.accept(new Event.ToolResult(
+                                    current.name(), o.call().name(), o.resultJson(), Duration.ZERO));
+                            core.trace(tctx, new TraceEvent.ToolResult(
+                                    Instant.now(), current.name(), o.call().name(), o.resultJson(), Duration.ZERO));
+                        }
+                    }
                     current = routeTarget;
                     toolChoiceSatisfied = false;
                     continue outer;
@@ -264,6 +279,7 @@ public final class Runner {
                 toolChoiceSatisfied = true;
             }
 
+            core.saveHistory(conversationId, history);
             var reply = Reply.maxTurns(lastText, refOf(current), accumulatedUsage, tctx.traceId(), List.copyOf(transcript));
             out.accept(new Event.Done(current.name(), reply));
         } catch (RuntimeException e) {
