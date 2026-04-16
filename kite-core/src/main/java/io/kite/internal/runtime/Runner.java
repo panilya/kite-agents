@@ -2,6 +2,7 @@ package io.kite.internal.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.kite.Agent;
+import io.kite.AgentBuilder;
 import io.kite.AgentRef;
 import io.kite.Event;
 import io.kite.GuardResult;
@@ -28,6 +29,10 @@ import java.util.function.Consumer;
  * The two execution loops — {@link #runLoop} for non-streaming and {@link #streamLoop} for
  * streaming. Both delegate shared state-machine logic to {@link RunnerCore}; neither is
  * implemented in terms of the other.
+ *
+ * <p>Delegation (Agent-as-Tool) reuses the non-streaming loop body via {@link #runDelegate},
+ * which executes under the parent's {@link TraceContext} so the delegate's internal events
+ * appear inline under the same trace id.
  */
 public final class Runner {
 
@@ -42,91 +47,113 @@ public final class Runner {
     public <T> Reply runLoop(Agent<T> rootAgent, String input, String conversationId, T ctx) {
         TraceContext tctx = core.startTrace(rootAgent, conversationId);
         try {
-            GuardResult blocking = core.runInputBlocking(rootAgent, ctx, input);
-            if (blocking.blocked()) return Reply.blocked(blocking, refOf(rootAgent), Usage.ZERO, tctx.traceId(), List.of());
-            GuardResult parallel = core.runInputParallel(rootAgent, ctx, input);
-            if (parallel.blocked()) return Reply.blocked(parallel, refOf(rootAgent), Usage.ZERO, tctx.traceId(), List.of());
-
-            List<Message> history = core.loadHistory(conversationId);
-            history.add(new Message.User(input));
-
-            Agent<T> current = rootAgent;
-            Usage accumulatedUsage = Usage.ZERO;
-            String lastText = "";
-            JsonNode lastStructured = null;
-
-            int maxTurns = core.effectiveMaxTurns(rootAgent);
-            int turns = 0;
-            boolean toolChoiceSatisfied = false;
-            while (turns++ < maxTurns) {
-                ChatRequest req = core.buildRequest(current, Collections.unmodifiableList(history), ctx, false, toolChoiceSatisfied);
-                core.trace(tctx, new TraceEvent.LlmRequest(Instant.now(), current.name(), req));
-
-                ModelProvider provider = core.pickProvider(current.model());
-                Instant start = Instant.now();
-                ChatResponse resp = provider.chat(req);
-                Duration elapsed = Duration.between(start, Instant.now());
-                core.trace(tctx, new TraceEvent.LlmResponse(Instant.now(), current.name(), resp, elapsed, resp.usage()));
-                accumulatedUsage = accumulatedUsage.plus(resp.usage());
-
-                history.add(new Message.Assistant(resp.content(), resp.toolCalls()));
-                lastText = resp.content() == null ? "" : resp.content();
-
-                if (!resp.hasToolCalls()) {
-                    // Terminal response.
-                    GuardResult after = core.runOutput(current, ctx, lastText);
-                    if (after.blocked()) {
-                        return Reply.blocked(after, refOf(current), accumulatedUsage, tctx.traceId(), List.of());
-                    }
-                    if (current.outputType() != null && !lastText.isEmpty()) {
-                        lastStructured = core.codec().readTree(lastText);
-                    }
-                    core.saveHistory(conversationId, history);
-                    return Reply.ok(lastText, refOf(current), lastStructured, accumulatedUsage, tctx.traceId(), List.of());
-                }
-
-                // Handle tool calls — first check for routing.
-                Agent<T> routeTarget = null;
-                for (var call : resp.toolCalls()) {
-                    Agent<T> t = core.resolveRoute(current, call.name());
-                    if (t != null) { routeTarget = t; break; }
-                }
-                if (routeTarget != null) {
-                    core.trace(tctx, new TraceEvent.Transfer(Instant.now(), current.name(), routeTarget.name()));
-                    core.appendRoutedToolOutputs(history, resp.toolCalls(), routeTarget);
-                    current = routeTarget;
-                    toolChoiceSatisfied = false;
-                    continue;
-                }
-
-                // Execute non-route tool calls, append their results to history.
-                for (var call : resp.toolCalls()) {
-                    core.trace(tctx, new TraceEvent.ToolCall(Instant.now(), current.name(), call.name(), call.argsJson()));
-                    Instant toolStart = Instant.now();
-                    String result;
-                    try {
-                        result = core.executeToolCall(current, call.name(), call.argsJson(), ctx);
-                    } catch (Exception e) {
-                        result = core.codec().writeValueAsString(
-                                Map.of("error", e.getMessage() == null ? "tool failed" : e.getMessage()));
-                    }
-                    Duration toolElapsed = Duration.between(toolStart, Instant.now());
-                    core.trace(tctx, new TraceEvent.ToolResult(Instant.now(), current.name(), call.name(), result, toolElapsed));
-                    history.add(new Message.Tool(call.id(), call.name(), result));
-                }
-                toolChoiceSatisfied = true;
-            }
-
-            return Reply.maxTurns(lastText, refOf(current), accumulatedUsage, tctx.traceId(), List.of());
+            return executeLoop(rootAgent, input, conversationId, ctx, tctx);
         } finally {
             core.endTrace(tctx);
         }
+    }
+
+    /**
+     * Run a delegated sub-agent under the parent's trace context. History is fresh (no
+     * conversation store read or write), so the delegate sees only the {@code input} as a single
+     * user message. The unchecked cast is safe because {@link AgentBuilder#build()} enforces that
+     * every DELEGATE tool's target has a context type compatible with the parent's.
+     */
+    private Reply runDelegate(Agent<?> delegate, String input, Object ctx, TraceContext parentTctx) {
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        Reply reply = executeLoop((Agent) delegate, input, null, ctx, parentTctx);
+        return reply;
+    }
+
+    private <T> Reply executeLoop(Agent<T> rootAgent, String input, String conversationId, T ctx, TraceContext tctx) {
+        GuardResult blocking = core.runInputBlocking(rootAgent, ctx, input);
+        if (blocking.blocked()) return Reply.blocked(blocking, refOf(rootAgent), Usage.ZERO, tctx.traceId(), List.of());
+        GuardResult parallel = core.runInputParallel(rootAgent, ctx, input);
+        if (parallel.blocked()) return Reply.blocked(parallel, refOf(rootAgent), Usage.ZERO, tctx.traceId(), List.of());
+
+        RunnerCore.DelegateRunner delegateRunner = (d, i, c) -> runDelegate(d, i, c, tctx);
+        List<Message> history = core.loadHistory(conversationId);
+        history.add(new Message.User(input));
+
+        Agent<T> current = rootAgent;
+        Usage accumulatedUsage = Usage.ZERO;
+        String lastText = "";
+        JsonNode lastStructured = null;
+
+        int maxTurns = core.effectiveMaxTurns(rootAgent);
+        int turns = 0;
+        boolean toolChoiceSatisfied = false;
+        while (turns++ < maxTurns) {
+            ChatRequest req = core.buildRequest(current, Collections.unmodifiableList(history), ctx, false, toolChoiceSatisfied);
+            core.trace(tctx, new TraceEvent.LlmRequest(Instant.now(), current.name(), req));
+
+            ModelProvider provider = core.pickProvider(current.model());
+            Instant start = Instant.now();
+            ChatResponse resp = provider.chat(req);
+            Duration elapsed = Duration.between(start, Instant.now());
+            core.trace(tctx, new TraceEvent.LlmResponse(Instant.now(), current.name(), resp, elapsed, resp.usage()));
+            accumulatedUsage = accumulatedUsage.plus(resp.usage());
+
+            history.add(new Message.Assistant(resp.content(), resp.toolCalls()));
+            lastText = resp.content() == null ? "" : resp.content();
+
+            if (!resp.hasToolCalls()) {
+                // Terminal response.
+                GuardResult after = core.runOutput(current, ctx, lastText);
+                if (after.blocked()) {
+                    return Reply.blocked(after, refOf(current), accumulatedUsage, tctx.traceId(), List.of());
+                }
+                if (current.outputType() != null && !lastText.isEmpty()) {
+                    lastStructured = core.codec().readTree(lastText);
+                }
+                core.saveHistory(conversationId, history);
+                return Reply.ok(lastText, refOf(current), lastStructured, accumulatedUsage, tctx.traceId(), List.of());
+            }
+
+            // Handle tool calls — first check for routing.
+            Agent<T> routeTarget = null;
+            for (var call : resp.toolCalls()) {
+                Agent<T> t = core.resolveRoute(current, call.name());
+                if (t != null) { routeTarget = t; break; }
+            }
+            if (routeTarget != null) {
+                core.trace(tctx, new TraceEvent.Transfer(Instant.now(), current.name(), routeTarget.name()));
+                core.appendRoutedToolOutputs(history, resp.toolCalls(), routeTarget);
+                current = routeTarget;
+                toolChoiceSatisfied = false;
+                continue;
+            }
+
+            // Execute non-route tool calls, append their results to history.
+            for (var call : resp.toolCalls()) {
+                core.trace(tctx, new TraceEvent.ToolCall(Instant.now(), current.name(), call.name(), call.argsJson()));
+                Instant toolStart = Instant.now();
+                RunnerCore.ToolCallOutcome outcome;
+                try {
+                    outcome = core.executeToolCall(current, call.name(), call.argsJson(), ctx, delegateRunner);
+                } catch (Exception e) {
+                    outcome = new RunnerCore.ToolCallOutcome(
+                            core.codec().writeValueAsString(
+                                    Map.of("error", e.getMessage() == null ? "tool failed" : e.getMessage())),
+                            Usage.ZERO);
+                }
+                String result = outcome.resultJson();
+                accumulatedUsage = accumulatedUsage.plus(outcome.usage());
+                Duration toolElapsed = Duration.between(toolStart, Instant.now());
+                core.trace(tctx, new TraceEvent.ToolResult(Instant.now(), current.name(), call.name(), result, toolElapsed));
+                history.add(new Message.Tool(call.id(), call.name(), result));
+            }
+            toolChoiceSatisfied = true;
+        }
+
+        return Reply.maxTurns(lastText, refOf(current), accumulatedUsage, tctx.traceId(), List.of());
     }
 
     /* ============================== Streaming loop ============================== */
 
     public <T> void streamLoop(Agent<T> rootAgent, String input, String conversationId, T ctx, Consumer<Event> downstream) {
         TraceContext tctx = core.startTrace(rootAgent, conversationId);
+        RunnerCore.DelegateRunner delegateRunner = (d, i, c) -> runDelegate(d, i, c, tctx);
         List<Event> transcript = new ArrayList<>(128);
         Consumer<Event> out = e -> {
             transcript.add(e);
@@ -218,13 +245,17 @@ public final class Runner {
                     out.accept(new Event.ToolCall(current.name(), call.name(), call.argsJson()));
                     core.trace(tctx, new TraceEvent.ToolCall(Instant.now(), current.name(), call.name(), call.argsJson()));
                     Instant toolStart = Instant.now();
-                    String result;
+                    RunnerCore.ToolCallOutcome outcome;
                     try {
-                        result = core.executeToolCall(current, call.name(), call.argsJson(), ctx);
+                        outcome = core.executeToolCall(current, call.name(), call.argsJson(), ctx, delegateRunner);
                     } catch (Exception e) {
-                        result = core.codec().writeValueAsString(
-                                Map.of("error", e.getMessage() == null ? "tool failed" : e.getMessage()));
+                        outcome = new RunnerCore.ToolCallOutcome(
+                                core.codec().writeValueAsString(
+                                        Map.of("error", e.getMessage() == null ? "tool failed" : e.getMessage())),
+                                Usage.ZERO);
                     }
+                    String result = outcome.resultJson();
+                    accumulatedUsage = accumulatedUsage.plus(outcome.usage());
                     Duration toolElapsed = Duration.between(toolStart, Instant.now());
                     out.accept(new Event.ToolResult(current.name(), call.name(), result, toolElapsed));
                     core.trace(tctx, new TraceEvent.ToolResult(Instant.now(), current.name(), call.name(), result, toolElapsed));

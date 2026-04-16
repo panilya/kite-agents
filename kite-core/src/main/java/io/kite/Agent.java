@@ -4,6 +4,8 @@ import io.kite.internal.runtime.ToolInvoker;
 import io.kite.schema.SchemaNode;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 
 /**
@@ -103,16 +105,38 @@ public final class Agent<T> {
     }
 
     /**
-     * Wrap this agent as a Tool for delegation from another agent. The delegated agent runs its
-     * own loop with its own {@code toolChoice} and {@code parallelToolCalls} settings; the
-     * parent's settings do not propagate through delegation.
+     * Wrap this agent as a Tool for delegation. The tool name defaults to this agent's name.
+     * The delegate runs its own loop with its own guards, tools, {@code toolChoice},
+     * {@code parallelToolCalls}, and {@code maxTurns}; parent settings do not propagate.
      */
     public Tool asTool(String description) {
+        return asTool(name == null ? "agent" : name, description, null);
+    }
+
+    /** Wrap as a Tool with a custom tool name (to avoid collisions with other tools). */
+    public Tool asTool(String toolName, String description) {
+        return asTool(toolName, description, null);
+    }
+
+    /**
+     * Wrap as a Tool with a custom tool name and a {@code outputExtractor} that post-processes
+     * the delegate's {@link Reply} into the string returned to the parent LLM. If null, the
+     * delegate's {@code reply.text()} (or structured output, as a nested JSON object) is used.
+     */
+    public Tool asTool(String toolName, String description, Function<Reply, String> outputExtractor) {
+        Objects.requireNonNull(toolName, "toolName");
+        Objects.requireNonNull(description, "description");
         ToolInvoker invoker = (ctx, argsJson) -> {
             throw new UnsupportedOperationException(
-                    "Agent-as-tool delegation must be invoked through Kite.run; direct invocation is not supported");
+                    "Agent-as-tool delegation is dispatched by Kite.run; the invoker is never called directly");
         };
-        return new Tool(name == null ? "agent" : name, description, null, invoker, false, Tool.Kind.DELEGATE, this);
+        SchemaNode schema = new SchemaNode.Obj(
+                Map.of("input", new SchemaNode.Str(
+                        "Prompt/task to send to the " + toolName + " sub-agent", null)),
+                List.of("input"),
+                description,
+                true);
+        return new Tool(toolName, description, schema, invoker, false, Tool.Kind.DELEGATE, this, outputExtractor);
     }
 
     /** Start building a no-context (Void) agent. Model is set via {@link AgentBuilder#model(String)}. */

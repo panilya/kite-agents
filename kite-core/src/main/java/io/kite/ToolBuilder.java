@@ -70,7 +70,7 @@ public final class ToolBuilder {
         SchemaNode schema = buildSchema();
         boolean usesContext = ctxFn != null;
         var invoker = new ToolInvokerImpl(name, params, noCtxFn, ctxFn);
-        return new Tool(name, description, schema, invoker, usesContext, Tool.Kind.FUNCTION, null);
+        return new Tool(name, description, schema, invoker, usesContext, Tool.Kind.FUNCTION, null, null);
     }
 
     private SchemaNode buildSchema() {
@@ -118,9 +118,7 @@ public final class ToolBuilder {
 
         @Override
         public String invoke(Object context, String argsJson) {
-            JsonNode node = argsJson == null || argsJson.isEmpty()
-                    ? JsonCodec.shared().mapper().createObjectNode()
-                    : JsonCodec.shared().readTree(argsJson);
+            JsonNode node = JsonCodec.shared().readTreeOrEmpty(argsJson);
             Map<String, Object> args = new LinkedHashMap<>();
             for (var p : params.values()) {
                 JsonNode field = node.get(p.name);

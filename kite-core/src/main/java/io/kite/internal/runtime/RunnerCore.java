@@ -1,15 +1,19 @@
 package io.kite.internal.runtime;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.kite.Agent;
 import io.kite.ConversationStore;
 import io.kite.Guard;
 import io.kite.GuardResult;
+import io.kite.Reply;
 import io.kite.Tool;
 import io.kite.ToolChoice;
 import io.kite.internal.json.JsonCodec;
 import io.kite.model.ChatRequest;
 import io.kite.model.Message;
 import io.kite.model.ModelProvider;
+import io.kite.model.Usage;
 import io.kite.schema.SchemaNode;
 import io.kite.tracing.TraceContext;
 import io.kite.tracing.TraceEvent;
@@ -187,16 +191,32 @@ public final class RunnerCore {
         return null;
     }
 
-    /** Execute a single tool call (by name) with the configured timeout. Returns the JSON result. */
-    public String executeToolCall(Agent<?> agent, String toolName, String argsJson, Object ctx) {
+    /**
+     * Execute a single tool call and return both the JSON result and the {@link Usage} contributed
+     * by the call. For FUNCTION tools usage is {@link Usage#ZERO}; for DELEGATE tools it is the
+     * delegate's accumulated usage. {@code delegateRunner} is required when the agent has any
+     * DELEGATE tools — Runner always supplies one.
+     *
+     * <p>FUNCTION invocations run on the virtual-thread executor with {@link #toolTimeout}.
+     * DELEGATE invocations intentionally bypass that timeout: a delegate runs nested LLM calls
+     * whose natural bound is the delegate's own {@code maxTurns}, not the tool timeout.
+     */
+    public ToolCallOutcome executeToolCall(Agent<?> agent,
+                                           String toolName,
+                                           String argsJson,
+                                           Object ctx,
+                                           DelegateRunner delegateRunner) {
         Tool tool = findTool(agent, toolName);
         if (tool == null) {
             throw new IllegalStateException("Tool '" + toolName + "' not registered on agent '" + agent.name() + "'");
         }
+        if (tool.kind() == Tool.Kind.DELEGATE) {
+            return executeDelegate(tool, argsJson, ctx, delegateRunner);
+        }
         var invoker = tool.invoker();
         Future<String> f = vexec.submit(ContextScope.capturingCallable(() -> invoker.invoke(ctx, argsJson)));
         try {
-            return f.get(toolTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            return new ToolCallOutcome(f.get(toolTimeout.toMillis(), TimeUnit.MILLISECONDS), Usage.ZERO);
         } catch (TimeoutException e) {
             f.cancel(true);
             throw new RuntimeException("Tool '" + toolName + "' timed out after " + toolTimeout, e);
@@ -208,6 +228,52 @@ public final class RunnerCore {
             Throwable cause = e.getCause() == null ? e : e.getCause();
             throw new RuntimeException("Tool '" + toolName + "' failed: " + cause.getMessage(), cause);
         }
+    }
+
+    private ToolCallOutcome executeDelegate(Tool tool, String argsJson, Object parentCtx, DelegateRunner delegateRunner) {
+        if (delegateRunner == null) {
+            throw new IllegalStateException("DELEGATE tool '" + tool.name() + "' invoked without a DelegateRunner");
+        }
+        JsonNode args = codec().readTreeOrEmpty(argsJson);
+        JsonNode inputNode = args.get("input");
+        String input = inputNode == null || inputNode.isNull() ? "" : inputNode.asText();
+
+        Agent<?> target = tool.routeTarget();
+        Object injectedCtx = target.contextType() == Void.class ? null : parentCtx;
+
+        Reply reply = delegateRunner.run(target, input, injectedCtx);
+
+        ObjectNode payload = codec().mapper().createObjectNode();
+        switch (reply.status()) {
+            case BLOCKED -> {
+                payload.put("blocked", true);
+                payload.put("guard", reply.guardResult() == null ? "" : reply.guardResult().guard());
+                payload.put("message", reply.blockReason() == null ? "" : reply.blockReason());
+            }
+            case MAX_TURNS -> {
+                payload.put("max_turns", true);
+                payload.put("text", reply.text() == null ? "" : reply.text());
+            }
+            case OK -> {
+                if (tool.outputExtractor() != null) {
+                    payload.put("output", tool.outputExtractor().apply(reply));
+                } else if (reply.structuredOutput() != null) {
+                    payload.set("output", reply.structuredOutput());
+                } else {
+                    payload.put("output", reply.text() == null ? "" : reply.text());
+                }
+            }
+        }
+        return new ToolCallOutcome(payload.toString(), reply.usage());
+    }
+
+    /** Result of a single tool call: the JSON result plus any usage the call contributed. */
+    public record ToolCallOutcome(String resultJson, Usage usage) {}
+
+    /** Dispatches a delegated sub-agent run; {@code Runner} supplies the implementation. */
+    @FunctionalInterface
+    public interface DelegateRunner {
+        Reply run(Agent<?> delegate, String input, Object ctx);
     }
 
     private Tool findTool(Agent<?> agent, String name) {

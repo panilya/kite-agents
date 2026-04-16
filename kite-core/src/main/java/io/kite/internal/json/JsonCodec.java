@@ -42,6 +42,11 @@ public final class JsonCodec {
         }
     }
 
+    /** Parse JSON, returning an empty object node when the input is null or empty. */
+    public JsonNode readTreeOrEmpty(String json) {
+        return json == null || json.isEmpty() ? mapper.createObjectNode() : readTree(json);
+    }
+
     public String writeValueAsString(Object value) {
         try {
             return mapper.writeValueAsString(value);

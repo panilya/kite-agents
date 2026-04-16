@@ -4,6 +4,7 @@ import io.kite.internal.runtime.ToolInvoker;
 import io.kite.schema.SchemaNode;
 
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * A single callable tool exposed to the LLM. Instances are immutable and created either by
@@ -22,7 +23,8 @@ public final class Tool {
     private final ToolInvoker invoker;
     private final boolean usesContext;
     private final Kind kind;
-    private final Agent<?> routeTarget;   // non-null when kind == ROUTE
+    private final Agent<?> routeTarget;   // non-null when kind == ROUTE or kind == DELEGATE
+    private final Function<Reply, String> outputExtractor;   // non-null only for DELEGATE with custom extractor
 
     public enum Kind { FUNCTION, ROUTE, DELEGATE }
 
@@ -36,7 +38,8 @@ public final class Tool {
                 ToolInvoker invoker,
                 boolean usesContext,
                 Kind kind,
-                Agent<?> routeTarget) {
+                Agent<?> routeTarget,
+                Function<Reply, String> outputExtractor) {
         this.name = Objects.requireNonNull(name, "name");
         this.description = description == null ? "" : description;
         this.paramsSchema = paramsSchema;
@@ -45,6 +48,7 @@ public final class Tool {
         this.usesContext = usesContext;
         this.kind = kind;
         this.routeTarget = routeTarget;
+        this.outputExtractor = outputExtractor;
     }
 
     public String name() { return name; }
@@ -54,6 +58,7 @@ public final class Tool {
     public boolean usesContext() { return usesContext; }
     public Kind kind() { return kind; }
     public Agent<?> routeTarget() { return routeTarget; }
+    public Function<Reply, String> outputExtractor() { return outputExtractor; }
 
     /** Internal accessor — invokes the underlying function. */
     public ToolInvoker invoker() { return invoker; }

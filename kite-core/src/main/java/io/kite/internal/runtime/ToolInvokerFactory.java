@@ -109,7 +109,7 @@ public final class ToolInvokerFactory {
         int ctxIdxFinal = ctxIndex;
         ToolInvoker invoker = new MethodHandleInvoker(name, handle, paramTypes, paramNames, ctxIdxFinal);
         boolean usesContext = ctxIndex >= 0;
-        return new Tool(name, description, schema, invoker, usesContext, Tool.Kind.FUNCTION, null);
+        return new Tool(name, description, schema, invoker, usesContext, Tool.Kind.FUNCTION, null, null);
     }
 
     /** ToolInvoker backed by a method handle bound to a bean instance. */
@@ -130,9 +130,7 @@ public final class ToolInvokerFactory {
 
         @Override
         public String invoke(Object context, String argsJson) throws Exception {
-            JsonNode node = argsJson == null || argsJson.isEmpty()
-                    ? JsonCodec.shared().mapper().createObjectNode()
-                    : JsonCodec.shared().readTree(argsJson);
+            JsonNode node = JsonCodec.shared().readTreeOrEmpty(argsJson);
             Object[] callArgs = new Object[paramTypes.length];
             for (int i = 0; i < paramTypes.length; i++) {
                 if (i == ctxIndex) {

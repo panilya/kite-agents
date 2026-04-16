@@ -6,8 +6,10 @@ import io.kite.schema.JsonSchemaGenerator;
 import io.kite.schema.SchemaNode;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -167,6 +169,7 @@ public final class AgentBuilder<T> {
         if (model == null) {
             throw new IllegalStateException("model must be set via AgentBuilder.model(String) before build()");
         }
+        validateDelegateTools();
         validateStaticToolChoice();
         return new Agent<>(
                 model, name, description,
@@ -196,5 +199,41 @@ public final class AgentBuilder<T> {
         }
         throw new IllegalStateException(
                 "tool choice '" + s.name() + "' does not match any tool or route on agent '" + name + "'");
+    }
+
+    private void validateDelegateTools() {
+        Set<String> toolNames = new HashSet<>();
+        for (Tool t : tools) {
+            if (!toolNames.add(t.name())) {
+                throw new IllegalStateException(
+                        "duplicate tool name '" + t.name() + "' on agent '" + name + "'");
+            }
+        }
+        Set<String> routeToolNames = new HashSet<>();
+        for (Agent<T> r : routes) {
+            routeToolNames.add(RunnerCore.routeToolName(r.name()));
+        }
+        for (Tool t : tools) {
+            if (t.kind() != Tool.Kind.DELEGATE) continue;
+            if (t.name().startsWith("transfer_to_")) {
+                throw new IllegalStateException(
+                        "delegate tool '" + t.name() + "' on agent '" + name
+                                + "' uses reserved prefix 'transfer_to_'");
+            }
+            if (routeToolNames.contains(t.name())) {
+                throw new IllegalStateException(
+                        "delegate tool '" + t.name() + "' on agent '" + name
+                                + "' collides with a synthetic route tool of the same name");
+            }
+            Agent<?> target = t.routeTarget();
+            if (target == null) continue;
+            Class<?> targetCtx = target.contextType();
+            if (targetCtx != contextType && targetCtx != Void.class) {
+                throw new IllegalStateException(
+                        "delegate '" + target.name() + "' on agent '" + name
+                                + "' has incompatible context type " + targetCtx.getName()
+                                + "; expected " + contextType.getName() + " or Void");
+            }
+        }
     }
 }
