@@ -73,7 +73,7 @@ class OpenAiProviderIntegrationTest {
 
         var provider = new OpenAiProvider("test-key", baseUrl);
         var kite = Kite.builder().provider(provider).tracing(Tracing.off()).build();
-        var agent = Agent.of("gpt-4o").instructions("You are a calculator.").build();
+        var agent = Agent.builder().model("gpt-4o").instructions("You are a calculator.").build();
 
         Reply reply = kite.run(agent, "What is the answer?");
         assertThat(reply.status()).isEqualTo(Status.OK);
@@ -111,7 +111,7 @@ class OpenAiProviderIntegrationTest {
 
         var provider = new OpenAiProvider("test-key", baseUrl);
         var kite = Kite.builder().provider(provider).tracing(Tracing.off()).build();
-        var agent = Agent.of("gpt-4o").build();
+        var agent = Agent.builder().model("gpt-4o").build();
 
         List<Event> events = new ArrayList<>();
         kite.stream(agent, "Hi", events::add);
@@ -153,7 +153,7 @@ class OpenAiProviderIntegrationTest {
 
         var provider = new OpenAiProvider("test-key", baseUrl);
         var kite = Kite.builder().provider(provider).tracing(Tracing.off()).build();
-        var agent = Agent.of("gpt-4o")
+        var agent = Agent.builder().model("gpt-4o")
                 .toolChoice(ToolChoice.required())
                 .parallelToolCalls(false)
                 .build();

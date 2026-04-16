@@ -217,22 +217,16 @@ public final class RunnerCore {
         return null;
     }
 
-    public <T> GuardResult runBeforeBlocking(Agent<T> agent, List<Guard<T>> global, T ctx, String input) {
-        GuardResult g = guardExecutor.runBlocking(global, ctx, input);
-        if (g.blocked()) return g;
-        return guardExecutor.runBlocking(agent.beforeGuards(), ctx, input);
+    public <T> GuardResult runInputBlocking(Agent<T> agent, T ctx, String input) {
+        return guardExecutor.runBlocking(agent.inputGuards(), ctx, input);
     }
 
-    public <T> GuardResult runBeforeParallel(Agent<T> agent, List<Guard<T>> global, T ctx, String input) {
-        GuardResult g = guardExecutor.runParallel(global, ctx, input);
-        if (g.blocked()) return g;
-        return guardExecutor.runParallel(agent.beforeGuards(), ctx, input);
+    public <T> GuardResult runInputParallel(Agent<T> agent, T ctx, String input) {
+        return guardExecutor.runParallel(agent.inputGuards(), ctx, input);
     }
 
-    public <T> GuardResult runAfter(Agent<T> agent, List<Guard<T>> global, T ctx, String output) {
-        GuardResult g = guardExecutor.runAfter(agent.afterGuards(), ctx, output);
-        if (g.blocked()) return g;
-        return guardExecutor.runAfter(global, ctx, output);
+    public <T> GuardResult runOutput(Agent<T> agent, T ctx, String output) {
+        return guardExecutor.runAfter(agent.outputGuards(), ctx, output);
     }
 
     public TraceContext startTrace(Agent<?> rootAgent, String conversationId) {

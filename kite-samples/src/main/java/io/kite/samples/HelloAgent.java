@@ -23,7 +23,8 @@ public final class HelloAgent {
                 .provider(new OpenAiProvider(key))
                 .build()) {
 
-            var agent = Agent.of("gpt-4o-mini")
+            var agent = Agent.builder()
+                    .model("gpt-4o-mini")
                     .name("greeter")
                     .instructions("You are a friendly greeter. Reply in one sentence.")
                     .build();

@@ -33,7 +33,8 @@ public final class BookingExtractor {
                 .provider(new OpenAiProvider(key))
                 .build()) {
 
-            var agent = Agent.of("gpt-4o-mini")
+            var agent = Agent.builder()
+                    .model("gpt-4o-mini")
                     .name("booking-extractor")
                     .instructions("Extract the booking details from the user's message.")
                     .output(BookingDetails.class)

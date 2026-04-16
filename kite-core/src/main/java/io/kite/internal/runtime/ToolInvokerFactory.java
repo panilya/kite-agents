@@ -76,7 +76,7 @@ public final class ToolInvokerFactory {
             if (expectedContextType == null || expectedContextType == Void.class) {
                 throw new IllegalArgumentException(
                         "@Tool method " + method + " declares @Ctx " + ctxType.getName()
-                                + " but its agent has no context type. Use Agent.of(model, ctxType).");
+                                + " but its agent has no context type. Use Agent.builder(ctxType).");
             }
             if (!ctxType.isAssignableFrom(expectedContextType) && !expectedContextType.isAssignableFrom(ctxType)) {
                 throw new IllegalArgumentException(

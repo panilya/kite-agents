@@ -1,7 +1,6 @@
 package io.kite;
 
 import io.kite.internal.runtime.RunnerCore;
-import io.kite.internal.runtime.ToolInvoker;
 import io.kite.internal.runtime.ToolInvokerFactory;
 import io.kite.schema.JsonSchemaGenerator;
 import io.kite.schema.SchemaNode;
@@ -18,16 +17,16 @@ import java.util.function.Function;
  */
 public final class AgentBuilder<T> {
 
-    private final String model;
     private final Class<T> contextType;
+    private String model;
     private String name = "agent";
     private String description = "";
     private final List<Function<T, String>> instructionFns = new ArrayList<>();
     private final List<Tool> tools = new ArrayList<>();
     private final List<Agent<T>> routes = new ArrayList<>();
     private Function<T, List<Agent<T>>> dynamicRoutes;
-    private final List<Guard<T>> beforeGuards = new ArrayList<>();
-    private final List<Guard<T>> afterGuards = new ArrayList<>();
+    private final List<Guard<T>> inputGuards = new ArrayList<>();
+    private final List<Guard<T>> outputGuards = new ArrayList<>();
     private Class<?> outputType;
     private SchemaNode outputSchema;
     private Double temperature;
@@ -36,9 +35,13 @@ public final class AgentBuilder<T> {
     private Function<T, ToolChoice> dynamicToolChoice;
     private Boolean parallelToolCalls;
 
-    AgentBuilder(String model, Class<T> contextType) {
-        this.model = Objects.requireNonNull(model, "model");
+    AgentBuilder(Class<T> contextType) {
         this.contextType = Objects.requireNonNull(contextType, "contextType");
+    }
+
+    public AgentBuilder<T> model(String model) {
+        this.model = Objects.requireNonNull(model, "model");
+        return this;
     }
 
     public AgentBuilder<T> name(String name) {
@@ -87,14 +90,28 @@ public final class AgentBuilder<T> {
         return this;
     }
 
-    public AgentBuilder<T> before(Guard<T> guard) {
-        beforeGuards.add(Objects.requireNonNull(guard, "guard"));
+    /**
+     * Replace the current input-phase guards. Input guards run before the first LLM call and can
+     * block the run early. Pass an empty list to clear.
+     */
+    public AgentBuilder<T> inputGuards(List<Guard<T>> guards) {
+        replaceGuards(this.inputGuards, guards);
         return this;
     }
 
-    public AgentBuilder<T> after(Guard<T> guard) {
-        afterGuards.add(Objects.requireNonNull(guard, "guard"));
+    /**
+     * Replace the current output-phase guards. Output guards run on the model's final text and
+     * can block the reply. Pass an empty list to clear.
+     */
+    public AgentBuilder<T> outputGuards(List<Guard<T>> guards) {
+        replaceGuards(this.outputGuards, guards);
         return this;
+    }
+
+    private static <G> void replaceGuards(List<G> target, List<G> source) {
+        Objects.requireNonNull(source, "guards");
+        target.clear();
+        for (G g : source) target.add(Objects.requireNonNull(g, "guard"));
     }
 
     public AgentBuilder<T> output(Class<? extends Record> type) {
@@ -109,48 +126,37 @@ public final class AgentBuilder<T> {
     }
 
     public AgentBuilder<T> maxTurns(int n) {
+        if (n < 1) throw new IllegalArgumentException("maxTurns must be >= 1");
         this.maxTurns = n;
         return this;
     }
 
     /**
-     * Set a static tool-choice directive for every LLM call this agent makes. Mutually exclusive
-     * with {@link #toolChoice(Function)}; setting one clears the other. Pass {@code null} to
-     * fall back to provider default (equivalent to {@link ToolChoice#auto()}).
+     * Static tool-choice directive. Validated at {@link #build()} time against registered tools
+     * and routes — a {@link ToolChoice.Specific} name mismatch throws {@link IllegalStateException}.
      *
-     * <p>When {@code choice} is {@link ToolChoice.Specific}, the tool name is validated at
-     * {@link #build()} time against the tools and routes currently registered on this builder.
-     * A mismatch throws {@link IllegalStateException}.
+     * <p>If {@link #dynamicToolChoice(Function)} is also set on this builder, the dynamic resolver
+     * takes precedence at request time and this static value is ignored.
      */
     public AgentBuilder<T> toolChoice(ToolChoice choice) {
         this.toolChoice = choice;
-        this.dynamicToolChoice = null;
         return this;
     }
 
     /**
-     * Set a dynamic tool-choice resolver that receives the typed context at request time and
-     * returns the directive to apply for that call. Mirrors {@link #instructions(Function)} and
-     * {@link #dynamicRoutes(Function)}. Mutually exclusive with {@link #toolChoice(ToolChoice)}.
-     *
-     * <p>Returning {@code null} from the function is equivalent to the provider default.
-     * Unknown {@link ToolChoice.Specific} names are caught per-turn at request-build time with
-     * a clear error listing the current tool set.
+     * Dynamic tool-choice resolver. Evaluated every turn with the agent's typed context; return
+     * {@code null} for the provider default. Takes precedence over {@link #toolChoice(ToolChoice)}
+     * when both are set.
      */
-    public AgentBuilder<T> toolChoice(Function<T, ToolChoice> fn) {
+    public AgentBuilder<T> dynamicToolChoice(Function<T, ToolChoice> fn) {
         this.dynamicToolChoice = fn;
-        this.toolChoice = null;
         return this;
     }
 
     /**
-     * Control whether the model may emit multiple tool calls in a single assistant turn.
-     * Default ({@code null}) is the provider default — typically parallel. Setting {@code false}
-     * forces the model to emit at most one tool call per turn, useful when downstream tool
-     * execution has order dependencies.
-     *
-     * <p>Note: this is a <em>hint to the model</em> about how many tool calls to emit. Kite
-     * executes tool calls sequentially within a turn regardless of this setting.
+     * Hint to the model about whether it may emit multiple tool calls in a single assistant turn.
+     * Default ({@code null}) is the provider default — typically parallel. Kite executes tool
+     * calls sequentially within a turn regardless of this setting.
      */
     public AgentBuilder<T> parallelToolCalls(boolean enabled) {
         this.parallelToolCalls = enabled;
@@ -158,6 +164,9 @@ public final class AgentBuilder<T> {
     }
 
     public Agent<T> build() {
+        if (model == null) {
+            throw new IllegalStateException("model must be set via AgentBuilder.model(String) before build()");
+        }
         validateStaticToolChoice();
         return new Agent<>(
                 model, name, description,
@@ -165,8 +174,8 @@ public final class AgentBuilder<T> {
                 tools,
                 routes,
                 dynamicRoutes,
-                beforeGuards,
-                afterGuards,
+                inputGuards,
+                outputGuards,
                 outputType,
                 outputSchema,
                 temperature,

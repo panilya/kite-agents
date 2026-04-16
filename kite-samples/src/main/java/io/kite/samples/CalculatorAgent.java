@@ -43,7 +43,8 @@ public final class CalculatorAgent {
                 .provider(new OpenAiProvider(key))
                 .build()) {
 
-            var agent = Agent.of("gpt-4o-mini")
+            var agent = Agent.builder()
+                    .model("gpt-4o-mini")
                     .name("calculator")
                     .instructions("You are a calculator. Always use the tools to compute results.")
                     .tools(new Calculator())

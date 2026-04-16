@@ -21,10 +21,7 @@ public final class KiteBuilder {
     private final List<ModelProvider> providers = new ArrayList<>();
     private ConversationStore conversationStore;
     private TracingProvider tracer;
-    private final List<Guard<?>> globalBefore = new ArrayList<>();
-    private final List<Guard<?>> globalAfter = new ArrayList<>();
-    private String defaultModel;
-    private int defaultMaxTurns = 25;
+    private int maxTurns = 25;
     private Duration toolTimeout = Duration.ofSeconds(30);
 
     KiteBuilder() {}
@@ -44,27 +41,14 @@ public final class KiteBuilder {
         return this;
     }
 
-    public KiteBuilder globalBefore(Guard<?> guard) {
-        globalBefore.add(Objects.requireNonNull(guard, "guard"));
+    /** Fallback cap on tool-loop iterations when an agent does not set its own {@link AgentBuilder#maxTurns(int)}. */
+    public KiteBuilder maxTurns(int n) {
+        if (n < 1) throw new IllegalArgumentException("maxTurns must be >= 1");
+        this.maxTurns = n;
         return this;
     }
 
-    public KiteBuilder globalAfter(Guard<?> guard) {
-        globalAfter.add(Objects.requireNonNull(guard, "guard"));
-        return this;
-    }
-
-    public KiteBuilder defaultModel(String model) {
-        this.defaultModel = model;
-        return this;
-    }
-
-    public KiteBuilder defaultMaxTurns(int n) {
-        if (n < 1) throw new IllegalArgumentException("defaultMaxTurns must be >= 1");
-        this.defaultMaxTurns = n;
-        return this;
-    }
-
+    /** Per-tool-invocation deadline. Defaults to 30 seconds. */
     public KiteBuilder toolTimeout(Duration d) {
         this.toolTimeout = Objects.requireNonNull(d, "toolTimeout");
         return this;
@@ -79,13 +63,12 @@ public final class KiteBuilder {
         ExecutorService vexec = Executors.newVirtualThreadPerTaskExecutor();
         var guardExec = new GuardExecutor(vexec);
         var core = new RunnerCore(
-                List.copyOf(providers), store, effectiveTracer, guardExec, defaultMaxTurns, toolTimeout, vexec);
-        var runner = new Runner(core, List.copyOf(globalBefore), List.copyOf(globalAfter));
+                List.copyOf(providers), store, effectiveTracer, guardExec, maxTurns, toolTimeout, vexec);
+        var runner = new Runner(core);
         return new Kite(List.copyOf(providers), vexec, runner);
     }
 
     private static TracingProvider defaultTracer() {
-        // Console tracing on by default in development; off if KITE_TRACING=off.
         String env = System.getenv("KITE_TRACING");
         if ("off".equalsIgnoreCase(env)) return NoOpTracingProvider.INSTANCE;
         return new ConsoleTracingProvider(false);

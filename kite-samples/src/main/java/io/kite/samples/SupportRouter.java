@@ -44,20 +44,23 @@ public final class SupportRouter {
                 .provider(new OpenAiProvider(key))
                 .build()) {
 
-            var billing = Agent.of("gpt-4o-mini", SupportCtx.class)
+            var billing = Agent.builder(SupportCtx.class)
+                    .model("gpt-4o-mini")
                     .name("billing")
                     .description("Handles billing, payments, refunds, and invoices")
                     .instructions("You are a billing specialist. Use the refund tool when appropriate.")
                     .tools(new BillingTools())
                     .build();
 
-            var technical = Agent.of("gpt-4o-mini", SupportCtx.class)
+            var technical = Agent.builder(SupportCtx.class)
+                    .model("gpt-4o-mini")
                     .name("technical")
                     .description("Handles bugs, crashes, and other technical issues")
                     .instructions("You are a technical-support specialist. Ask for the app version and OS.")
                     .build();
 
-            var triage = Agent.of("gpt-4o-mini", SupportCtx.class)
+            var triage = Agent.builder(SupportCtx.class)
+                    .model("gpt-4o-mini")
                     .name("triage")
                     .instructions(ctx -> "You triage support tickets for customer "
                             + ctx.customerId() + " (plan: " + ctx.plan()

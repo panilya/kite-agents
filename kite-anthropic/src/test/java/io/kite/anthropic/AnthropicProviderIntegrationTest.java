@@ -63,7 +63,7 @@ class AnthropicProviderIntegrationTest {
 
         var provider = new AnthropicProvider("test-key", baseUrl);
         var kite = Kite.builder().provider(provider).tracing(Tracing.off()).build();
-        var agent = Agent.of("claude-3-5-sonnet-20241022").instructions("Be terse.").build();
+        var agent = Agent.builder().model("claude-3-5-sonnet-20241022").instructions("Be terse.").build();
 
         Reply reply = kite.run(agent, "What's the answer?");
         assertThat(reply.status()).isEqualTo(Status.OK);
@@ -104,7 +104,7 @@ class AnthropicProviderIntegrationTest {
 
         var provider = new AnthropicProvider("test-key", baseUrl);
         var kite = Kite.builder().provider(provider).tracing(Tracing.off()).build();
-        var agent = Agent.of("claude-3-5-sonnet-20241022").build();
+        var agent = Agent.builder().model("claude-3-5-sonnet-20241022").build();
 
         List<Event> events = new ArrayList<>();
         kite.stream(agent, "Hi", events::add);
@@ -142,7 +142,7 @@ class AnthropicProviderIntegrationTest {
 
         var provider = new AnthropicProvider("test-key", baseUrl);
         var kite = Kite.builder().provider(provider).tracing(Tracing.off()).build();
-        var agent = Agent.of("claude-3-5-sonnet-20241022")
+        var agent = Agent.builder().model("claude-3-5-sonnet-20241022")
                 .toolChoice(ToolChoice.required())
                 .parallelToolCalls(false)
                 .build();

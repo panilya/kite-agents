@@ -24,8 +24,8 @@ public final class Agent<T> {
     final List<Tool> tools;
     final List<Agent<T>> routes;
     final Function<T, List<Agent<T>>> dynamicRoutes;
-    final List<Guard<T>> beforeGuards;
-    final List<Guard<T>> afterGuards;
+    final List<Guard<T>> inputGuards;
+    final List<Guard<T>> outputGuards;
     final Class<?> outputType;           // nullable; must be a record
     final SchemaNode outputSchema;       // nullable; built from outputType at build time
     final Double temperature;
@@ -42,8 +42,8 @@ public final class Agent<T> {
           List<Tool> tools,
           List<Agent<T>> routes,
           Function<T, List<Agent<T>>> dynamicRoutes,
-          List<Guard<T>> beforeGuards,
-          List<Guard<T>> afterGuards,
+          List<Guard<T>> inputGuards,
+          List<Guard<T>> outputGuards,
           Class<?> outputType,
           SchemaNode outputSchema,
           Double temperature,
@@ -59,8 +59,8 @@ public final class Agent<T> {
         this.tools = List.copyOf(tools);
         this.routes = List.copyOf(routes);
         this.dynamicRoutes = dynamicRoutes;
-        this.beforeGuards = List.copyOf(beforeGuards);
-        this.afterGuards = List.copyOf(afterGuards);
+        this.inputGuards = List.copyOf(inputGuards);
+        this.outputGuards = List.copyOf(outputGuards);
         this.outputType = outputType;
         this.outputSchema = outputSchema;
         this.temperature = temperature;
@@ -80,8 +80,8 @@ public final class Agent<T> {
     public List<Tool> tools() { return tools; }
     public List<Agent<T>> routes() { return routes; }
     public Function<T, List<Agent<T>>> dynamicRoutes() { return dynamicRoutes; }
-    public List<Guard<T>> beforeGuards() { return beforeGuards; }
-    public List<Guard<T>> afterGuards() { return afterGuards; }
+    public List<Guard<T>> inputGuards() { return inputGuards; }
+    public List<Guard<T>> outputGuards() { return outputGuards; }
     public Double temperature() { return temperature; }
     public Integer maxTurns() { return maxTurns; }
     public ToolChoice toolChoice() { return toolChoice; }
@@ -115,13 +115,13 @@ public final class Agent<T> {
         return new Tool(name == null ? "agent" : name, description, null, invoker, false, Tool.Kind.DELEGATE, this);
     }
 
-    /** Start building a no-context (Void) agent. */
-    public static AgentBuilder<Void> of(String model) {
-        return new AgentBuilder<>(model, Void.class);
+    /** Start building a no-context (Void) agent. Model is set via {@link AgentBuilder#model(String)}. */
+    public static AgentBuilder<Void> builder() {
+        return new AgentBuilder<>(Void.class);
     }
 
-    /** Start building an agent with the given typed context. */
-    public static <T> AgentBuilder<T> of(String model, Class<T> contextType) {
-        return new AgentBuilder<>(model, contextType);
+    /** Start building an agent with the given typed context. Model is set via {@link AgentBuilder#model(String)}. */
+    public static <T> AgentBuilder<T> builder(Class<T> contextType) {
+        return new AgentBuilder<>(contextType);
     }
 }

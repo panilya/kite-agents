@@ -27,8 +27,8 @@ import io.kite.internal.runtime.RunnerCore;
  * the remainder of the agent's loop — so the model can synthesize a final text answer once the
  * forced tool has run. After a route transfer the new agent's directive is fresh again.
  * To force a tool on <em>every</em> turn (rare; risks an infinite loop bounded by
- * {@code maxTurns}), use the dynamic variant {@code .toolChoice(Function<T, ToolChoice>)} —
- * dynamic resolvers are re-evaluated every turn and never auto-revert.
+ * {@code maxTurns}), use {@code .dynamicToolChoice(Function<T, ToolChoice>)} — dynamic resolvers
+ * are re-evaluated every turn and never auto-revert.
  *
  * <p><b>Provider quirks (not enforced by Kite).</b> Anthropic's {@code none} requires
  * Claude 3.5+; {@code required}/{@code Specific} are incompatible with extended thinking mode.

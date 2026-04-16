@@ -29,7 +29,8 @@ public final class StreamingAgent {
                 .provider(new OpenAiProvider(key))
                 .build()) {
 
-            var agent = Agent.of("gpt-4o-mini")
+            var agent = Agent.builder()
+                    .model("gpt-4o-mini")
                     .name("storyteller")
                     .instructions("You are a storyteller. Keep responses under three sentences.")
                     .build();

@@ -64,12 +64,13 @@ public final class DynamicToolChoiceByTier {
                 .provider(new OpenAiProvider(key))
                 .build()) {
 
-            var agent = Agent.of("gpt-4o-mini", SupportCtx.class)
+            var agent = Agent.builder(SupportCtx.class)
+                    .model("gpt-4o-mini")
                     .name("support")
                     .instructions(ctx -> "You are a support agent helping " + ctx.customerId()
                             + " (tier: " + ctx.tier() + ").")
                     .tools(new SupportTools())
-                    .toolChoice((SupportCtx ctx) -> switch (ctx.tier()) {
+                    .dynamicToolChoice((SupportCtx ctx) -> switch (ctx.tier()) {
                         case "enterprise" -> ToolChoice.tool("escalate_to_human");
                         case "free"       -> ToolChoice.tool("self_service_article");
                         default           -> ToolChoice.auto();

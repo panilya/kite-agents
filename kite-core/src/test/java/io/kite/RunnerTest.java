@@ -51,7 +51,7 @@ class RunnerTest {
                 .provider(mock)
                 .tracing(Tracing.off())
                 .build();
-        var agent = Agent.of("gpt-test")
+        var agent = Agent.builder().model("gpt-test")
                 .name("greeter")
                 .instructions("You are a greeter.")
                 .build();
@@ -73,7 +73,7 @@ class RunnerTest {
                 .provider(mock)
                 .tracing(Tracing.off())
                 .build();
-        var agent = Agent.of("gpt-test")
+        var agent = Agent.builder().model("gpt-test")
                 .name("greeter")
                 .instructions("You are a greeter.")
                 .build();
@@ -100,7 +100,7 @@ class RunnerTest {
                 .provider(mock)
                 .tracing(Tracing.off())
                 .build();
-        var agent = Agent.of("gpt-test")
+        var agent = Agent.builder().model("gpt-test")
                 .instructions("Use the add tool when asked for a sum.")
                 .tools(new Calculator())
                 .build();
@@ -134,7 +134,7 @@ class RunnerTest {
                 .provider(mock)
                 .tracing(Tracing.off())
                 .build();
-        var agent = Agent.of("gpt-test")
+        var agent = Agent.builder().model("gpt-test")
                 .tools(new Calculator())
                 .build();
 
@@ -158,7 +158,7 @@ class RunnerTest {
                 .respondText("Done")
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var agent = Agent.of("gpt-test", SupportCtx.class)
+        var agent = Agent.builder(SupportCtx.class).model("gpt-test")
                 .tools(bean)
                 .build();
 
@@ -174,8 +174,8 @@ class RunnerTest {
         var block = Guard.input("block-all")
                 .blocking()
                 .check((ctx, input) -> Guard.block("nope"));
-        var agent = Agent.of("gpt-test")
-                .before(block)
+        var agent = Agent.builder().model("gpt-test")
+                .inputGuards(List.of(block))
                 .build();
 
         Reply reply = kite.run(agent, "anything");
@@ -192,8 +192,8 @@ class RunnerTest {
                 .respondText("Billing handled it")
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var billing = Agent.of("gpt-test").name("billing").description("Billing specialist").build();
-        var triage = Agent.of("gpt-test")
+        var billing = Agent.builder().model("gpt-test").name("billing").description("Billing specialist").build();
+        var triage = Agent.builder().model("gpt-test")
                 .name("triage")
                 .route(billing)
                 .build();
@@ -212,8 +212,8 @@ class RunnerTest {
                 .respondText("Billing handled it")
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var billing = Agent.of("gpt-test").name("billing").description("Billing specialist").build();
-        var triage = Agent.of("gpt-test").name("triage").route(billing).build();
+        var billing = Agent.builder().model("gpt-test").name("billing").description("Billing specialist").build();
+        var triage = Agent.builder().model("gpt-test").name("triage").route(billing).build();
 
         kite.run(triage, "I have a billing question");
 
@@ -237,9 +237,9 @@ class RunnerTest {
                 .respondText("Audited")
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var audit = Agent.of("gpt-test").name("audit").build();
-        var billing = Agent.of("gpt-test").name("billing").route(audit).build();
-        var triage = Agent.of("gpt-test").name("triage").route(billing).build();
+        var audit = Agent.builder().model("gpt-test").name("audit").build();
+        var billing = Agent.builder().model("gpt-test").name("billing").route(audit).build();
+        var triage = Agent.builder().model("gpt-test").name("triage").route(billing).build();
 
         kite.run(triage, "complex case");
 
@@ -263,8 +263,8 @@ class RunnerTest {
                         new ChatChunk.Done(Usage.ZERO, "stop")))
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var billing = Agent.of("gpt-test").name("billing").description("Billing specialist").build();
-        var triage = Agent.of("gpt-test").name("triage").route(billing).build();
+        var billing = Agent.builder().model("gpt-test").name("billing").description("Billing specialist").build();
+        var triage = Agent.builder().model("gpt-test").name("triage").route(billing).build();
 
         List<Event> events = new ArrayList<>();
         kite.stream(triage, "I have a billing question", events::add);
@@ -286,7 +286,7 @@ class RunnerTest {
                 .respondText("3")
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var agent = Agent.of("gpt-test")
+        var agent = Agent.builder().model("gpt-test")
                 .tools(new Calculator())
                 .toolChoice(ToolChoice.required())
                 .build();
@@ -308,9 +308,9 @@ class RunnerTest {
                 .respondText("3")
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var agent = Agent.of("gpt-test")
+        var agent = Agent.builder().model("gpt-test")
                 .tools(new Calculator())
-                .toolChoice((Void ctx) -> ToolChoice.required())
+                .dynamicToolChoice((Void ctx) -> ToolChoice.required())
                 .build();
 
         kite.run(agent, "sum");
@@ -327,9 +327,9 @@ class RunnerTest {
                 .respondText("ok")
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var agent = Agent.of("gpt-test", SupportCtx.class)
+        var agent = Agent.builder(SupportCtx.class).model("gpt-test")
                 .tools(new BillingTools())
-                .toolChoice((SupportCtx ctx) ->
+                .dynamicToolChoice((SupportCtx ctx) ->
                         "vip".equals(ctx.customerId()) ? ToolChoice.required() : ToolChoice.auto())
                 .build();
 
@@ -338,9 +338,9 @@ class RunnerTest {
 
         var mock2 = MockModelProvider.builder().respondText("ok").build();
         var kite2 = Kite.builder().provider(mock2).tracing(Tracing.off()).build();
-        var agent2 = Agent.of("gpt-test", SupportCtx.class)
+        var agent2 = Agent.builder(SupportCtx.class).model("gpt-test")
                 .tools(new BillingTools())
-                .toolChoice((SupportCtx ctx) ->
+                .dynamicToolChoice((SupportCtx ctx) ->
                         "vip".equals(ctx.customerId()) ? ToolChoice.required() : ToolChoice.auto())
                 .build();
 
@@ -360,13 +360,13 @@ class RunnerTest {
                 .respondText("done")
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var billing = Agent.of("gpt-test", SupportCtx.class)
+        var billing = Agent.builder(SupportCtx.class).model("gpt-test")
                 .name("billing")
                 .description("Billing specialist")
                 .tools(new BillingTools())
                 .toolChoice(ToolChoice.tool("refund"))
                 .build();
-        var triage = Agent.of("gpt-test", SupportCtx.class)
+        var triage = Agent.builder(SupportCtx.class).model("gpt-test")
                 .name("triage")
                 .route(billing)
                 .toolChoice(ToolChoice.route(billing))
@@ -389,7 +389,7 @@ class RunnerTest {
 
     @Test
     void toolChoiceSpecificUnknownToolFailsAtBuild() {
-        assertThatThrownBy(() -> Agent.of("gpt-test")
+        assertThatThrownBy(() -> Agent.builder().model("gpt-test")
                 .tools(new Calculator())
                 .toolChoice(ToolChoice.tool("nope"))
                 .build())
@@ -401,9 +401,9 @@ class RunnerTest {
     void toolChoiceDynamicUnknownToolFailsAtRequestTime() {
         var mock = MockModelProvider.builder().build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var agent = Agent.of("gpt-test", SupportCtx.class)
+        var agent = Agent.builder(SupportCtx.class).model("gpt-test")
                 .tools(new BillingTools())
-                .toolChoice((SupportCtx ctx) -> ToolChoice.tool("not_there"))
+                .dynamicToolChoice((SupportCtx ctx) -> ToolChoice.tool("not_there"))
                 .build();
 
         assertThatThrownBy(() -> kite.run(agent, "anything", new SupportCtx("C-1")))
@@ -417,7 +417,7 @@ class RunnerTest {
     void parallelToolCallsFlagForwarded() {
         var mock = MockModelProvider.builder().respondText("ok").build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var agent = Agent.of("gpt-test")
+        var agent = Agent.builder().model("gpt-test")
                 .tools(new Calculator())
                 .parallelToolCalls(false)
                 .build();
@@ -435,7 +435,7 @@ class RunnerTest {
                         new ChatChunk.Done(Usage.ZERO, "stop")))
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
-        var agent = Agent.of("gpt-test")
+        var agent = Agent.builder().model("gpt-test")
                 .tools(new Calculator())
                 .toolChoice(ToolChoice.required())
                 .build();

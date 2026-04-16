@@ -6,6 +6,8 @@ import io.kite.Kite;
 import io.kite.Status;
 import io.kite.openai.OpenAiProvider;
 
+import java.util.List;
+
 /**
  * Input and output guards.
  *
@@ -41,11 +43,12 @@ public final class GuardedAgent {
                 .provider(new OpenAiProvider(key))
                 .build()) {
 
-            var agent = Agent.of("gpt-4o-mini")
+            var agent = Agent.builder()
+                    .model("gpt-4o-mini")
                     .name("assistant")
                     .instructions("You are a helpful assistant. Reply in one sentence.")
-                    .before(noHacking)
-                    .after(noEmptyReply)
+                    .inputGuards(List.of(noHacking))
+                    .outputGuards(List.of(noEmptyReply))
                     .build();
 
             run(kite, agent, "What is the capital of France?");

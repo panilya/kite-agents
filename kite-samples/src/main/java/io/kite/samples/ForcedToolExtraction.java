@@ -50,7 +50,8 @@ public final class ForcedToolExtraction {
                 .provider(new OpenAiProvider(key))
                 .build()) {
 
-            var agent = Agent.of("gpt-4o-mini")
+            var agent = Agent.builder()
+                    .model("gpt-4o-mini")
                     .name("intake")
                     .instructions("Extract ticket details from the user's message and store them using the tool.")
                     .tool(storeTicket)

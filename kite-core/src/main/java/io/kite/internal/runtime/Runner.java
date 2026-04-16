@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.kite.Agent;
 import io.kite.AgentRef;
 import io.kite.Event;
-import io.kite.Guard;
 import io.kite.GuardResult;
 import io.kite.Reply;
 import io.kite.model.ChatChunk;
@@ -33,27 +32,19 @@ import java.util.function.Consumer;
 public final class Runner {
 
     private final RunnerCore core;
-    private final List<Guard<?>> globalBefore;
-    private final List<Guard<?>> globalAfter;
 
-    public Runner(RunnerCore core, List<Guard<?>> globalBefore, List<Guard<?>> globalAfter) {
+    public Runner(RunnerCore core) {
         this.core = core;
-        this.globalBefore = globalBefore;
-        this.globalAfter = globalAfter;
     }
 
     /* ============================ Non-streaming loop ============================ */
 
-    @SuppressWarnings("unchecked")
     public <T> Reply runLoop(Agent<T> rootAgent, String input, String conversationId, T ctx) {
         TraceContext tctx = core.startTrace(rootAgent, conversationId);
         try {
-            List<Guard<T>> global = (List<Guard<T>>) (List<?>) globalBefore;
-            List<Guard<T>> globalAfterTyped = (List<Guard<T>>) (List<?>) globalAfter;
-
-            GuardResult blocking = core.runBeforeBlocking(rootAgent, global, ctx, input);
+            GuardResult blocking = core.runInputBlocking(rootAgent, ctx, input);
             if (blocking.blocked()) return Reply.blocked(blocking, refOf(rootAgent), Usage.ZERO, tctx.traceId(), List.of());
-            GuardResult parallel = core.runBeforeParallel(rootAgent, global, ctx, input);
+            GuardResult parallel = core.runInputParallel(rootAgent, ctx, input);
             if (parallel.blocked()) return Reply.blocked(parallel, refOf(rootAgent), Usage.ZERO, tctx.traceId(), List.of());
 
             List<Message> history = core.loadHistory(conversationId);
@@ -83,7 +74,7 @@ public final class Runner {
 
                 if (!resp.hasToolCalls()) {
                     // Terminal response.
-                    GuardResult after = core.runAfter(current, globalAfterTyped, ctx, lastText);
+                    GuardResult after = core.runOutput(current, ctx, lastText);
                     if (after.blocked()) {
                         return Reply.blocked(after, refOf(current), accumulatedUsage, tctx.traceId(), List.of());
                     }
@@ -134,7 +125,6 @@ public final class Runner {
 
     /* ============================== Streaming loop ============================== */
 
-    @SuppressWarnings("unchecked")
     public <T> void streamLoop(Agent<T> rootAgent, String input, String conversationId, T ctx, Consumer<Event> downstream) {
         TraceContext tctx = core.startTrace(rootAgent, conversationId);
         List<Event> transcript = new ArrayList<>(128);
@@ -144,10 +134,7 @@ public final class Runner {
         };
 
         try {
-            List<Guard<T>> global = (List<Guard<T>>) (List<?>) globalBefore;
-            List<Guard<T>> globalAfterTyped = (List<Guard<T>>) (List<?>) globalAfter;
-
-            GuardResult blocking = core.runBeforeBlocking(rootAgent, global, ctx, input);
+            GuardResult blocking = core.runInputBlocking(rootAgent, ctx, input);
             if (blocking.blocked()) {
                 var blockedEvent = new Event.Blocked(rootAgent.name(), blocking.guard(), blocking.message());
                 out.accept(blockedEvent);
@@ -155,7 +142,7 @@ public final class Runner {
                 out.accept(new Event.Done(rootAgent.name(), reply));
                 return;
             }
-            GuardResult parallel = core.runBeforeParallel(rootAgent, global, ctx, input);
+            GuardResult parallel = core.runInputParallel(rootAgent, ctx, input);
             if (parallel.blocked()) {
                 out.accept(new Event.Blocked(rootAgent.name(), parallel.guard(), parallel.message()));
                 var reply = Reply.blocked(parallel, refOf(rootAgent), Usage.ZERO, tctx.traceId(), List.copyOf(transcript));
@@ -196,7 +183,7 @@ public final class Runner {
                 lastText = fakeResp.content();
 
                 if (!fakeResp.hasToolCalls()) {
-                    GuardResult after = core.runAfter(current, globalAfterTyped, ctx, lastText);
+                    GuardResult after = core.runOutput(current, ctx, lastText);
                     if (after.blocked()) {
                         out.accept(new Event.Blocked(current.name(), after.guard(), after.message()));
                         var reply = Reply.blocked(after, refOf(current), accumulatedUsage, tctx.traceId(), List.copyOf(transcript));
