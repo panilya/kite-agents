@@ -1,4 +1,4 @@
-package io.kite.samples;
+package io.kite.samples.routing;
 
 import io.kite.Agent;
 import io.kite.Kite;

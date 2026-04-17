@@ -17,4 +17,12 @@ public @interface Tool {
 
     /** Description shown to the LLM in the tool schema. */
     String description() default "";
+
+    /**
+     * Marks the tool as having no externally-observable side effects. Kite may then start it
+     * in parallel with any still-running parallel input guards (instead of waiting for guards
+     * to pass first), overlapping the tool's latency with the guard wait. If a guard blocks,
+     * the result is thrown away and nothing leaks to the caller. Defaults to false.
+     */
+    boolean readOnly() default false;
 }

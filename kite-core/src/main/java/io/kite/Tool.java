@@ -25,6 +25,7 @@ public final class Tool {
     private final Kind kind;
     private final Agent<?> routeTarget;   // non-null when kind == ROUTE or kind == DELEGATE
     private final Function<Reply, String> outputExtractor;   // non-null only for DELEGATE with custom extractor
+    private final boolean readOnly;
 
     public enum Kind { FUNCTION, ROUTE, DELEGATE }
 
@@ -33,6 +34,12 @@ public final class Tool {
      * {@code @Tool} annotation on a POJO method passed to {@code AgentBuilder.tools(bean)}.
      * Runtime callers in {@code io.kite.internal.runtime} use {@link Tools#newFunctionTool}
      * instead of invoking this directly.
+     *
+     * <p>{@code readOnly} declares that the tool has no externally-observable side effects.
+     * Kite may start it in parallel with any still-running input guards instead of waiting
+     * for them to finish, and will simply throw the result away if a guard blocks. Only
+     * meaningful for {@link Kind#FUNCTION}; {@link Kind#ROUTE} and {@link Kind#DELEGATE}
+     * always run after guards resolve and must pass {@code false}.
      */
     Tool(String name,
          String description,
@@ -41,7 +48,8 @@ public final class Tool {
          boolean usesContext,
          Kind kind,
          Agent<?> routeTarget,
-         Function<Reply, String> outputExtractor) {
+         Function<Reply, String> outputExtractor,
+         boolean readOnly) {
         this.name = Objects.requireNonNull(name, "name");
         this.description = description == null ? "" : description;
         this.paramsSchema = paramsSchema;
@@ -51,6 +59,11 @@ public final class Tool {
         this.kind = kind;
         this.routeTarget = routeTarget;
         this.outputExtractor = outputExtractor;
+        if (readOnly && kind != Kind.FUNCTION) {
+            throw new IllegalArgumentException(
+                    "Tool '" + name + "' kind=" + kind + " cannot be readOnly — only FUNCTION tools support speculative execution");
+        }
+        this.readOnly = readOnly;
     }
 
     public String name() { return name; }
@@ -61,6 +74,7 @@ public final class Tool {
     public Kind kind() { return kind; }
     public Agent<?> routeTarget() { return routeTarget; }
     public Function<Reply, String> outputExtractor() { return outputExtractor; }
+    public boolean readOnly() { return readOnly; }
 
     /** Internal accessor — invokes the underlying function. */
     public ToolInvoker invoker() { return invoker; }

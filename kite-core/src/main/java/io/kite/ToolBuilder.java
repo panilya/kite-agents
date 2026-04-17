@@ -24,6 +24,7 @@ public final class ToolBuilder {
     private final Map<String, ParamDef> params = new LinkedHashMap<>();
     private Function<Map<String, Object>, Object> noCtxFn;
     private BiFunction<Object, Map<String, Object>, Object> ctxFn;
+    private boolean readOnly;
 
     ToolBuilder(String name) {
         this.name = Objects.requireNonNull(name, "name");
@@ -62,6 +63,19 @@ public final class ToolBuilder {
         return this;
     }
 
+    /**
+     * Declare this tool as read-only: it has no externally-observable side effects (e.g. a
+     * database read, a vector-store lookup, a web fetch you're willing to re-issue). Kite can
+     * then start it in parallel with any still-running parallel input guards — overlapping the
+     * tool's latency with the guard wait — instead of waiting for guards to pass first. If a
+     * guard blocks, the tool's result is thrown away and nothing leaks to the caller; only
+     * the CPU/IO the tool already consumed is wasted. Defaults to false.
+     */
+    public ToolBuilder readOnly(boolean readOnly) {
+        this.readOnly = readOnly;
+        return this;
+    }
+
     public Tool build() {
         if (noCtxFn == null && ctxFn == null) {
             throw new IllegalStateException("Tool '" + name + "' has no execute(...) function configured");
@@ -69,7 +83,7 @@ public final class ToolBuilder {
         SchemaNode schema = buildSchema();
         boolean usesContext = ctxFn != null;
         var invoker = new ToolInvokerImpl(name, params, noCtxFn, ctxFn);
-        return new Tool(name, description, schema, invoker, usesContext, Tool.Kind.FUNCTION, null, null);
+        return new Tool(name, description, schema, invoker, usesContext, Tool.Kind.FUNCTION, null, null, readOnly);
     }
 
     private SchemaNode buildSchema() {

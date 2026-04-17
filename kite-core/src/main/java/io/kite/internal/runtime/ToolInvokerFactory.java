@@ -123,7 +123,7 @@ public final class ToolInvokerFactory {
         int ctxIdxFinal = ctxIndex;
         ToolInvoker invoker = new MethodHandleInvoker(name, handle, paramTypes, paramNames, ctxIdxFinal);
         boolean usesContext = ctxIndex >= 0;
-        return Tools.newFunctionTool(name, description, schema, invoker, usesContext);
+        return Tools.newFunctionTool(name, description, schema, invoker, usesContext, ann.readOnly());
     }
 
     /** ToolInvoker backed by a method handle bound to a bean instance. */

@@ -1,4 +1,4 @@
-package io.kite.samples;
+package io.kite.samples.streaming;
 
 import io.kite.Agent;
 import io.kite.Event;

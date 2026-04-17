@@ -291,7 +291,7 @@ public final class RunnerCore {
         Reply run(Agent<?> delegate, String input, Object ctx);
     }
 
-    private Tool findTool(Agent<?> agent, String name) {
+    Tool findTool(Agent<?> agent, String name) {
         for (var t : agent.tools()) {
             if (t.name().equals(name)) return t;
         }
@@ -303,9 +303,15 @@ public final class RunnerCore {
                 (g, r) -> emitGuardCheck(tctx, agent.name(), g, r));
     }
 
-    public <T> GuardResult runInputParallel(Agent<T> agent, T ctx, String input, TraceContext tctx) {
-        return guardExecutor.runParallel(agent.inputGuards(), ctx, input,
+    public <T> ParallelGuardHandle startInputParallel(Agent<T> agent, T ctx, String input, TraceContext tctx) {
+        return guardExecutor.startParallel(agent.inputGuards(), ctx, input,
                 (g, r) -> emitGuardCheck(tctx, agent.name(), g, r));
+    }
+
+    /** Shared virtual-thread executor — {@link Runner} uses it to submit the first-turn LLM call
+     * and any speculative read-only tool calls alongside in-flight parallel guards. */
+    public ExecutorService vexec() {
+        return vexec;
     }
 
     public <T> GuardResult runOutput(Agent<T> agent, T ctx, String output, TraceContext tctx) {

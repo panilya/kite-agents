@@ -15,7 +15,8 @@ public final class Tools {
                                        String description,
                                        SchemaNode paramsSchema,
                                        ToolInvoker invoker,
-                                       boolean usesContext) {
-        return new Tool(name, description, paramsSchema, invoker, usesContext, Tool.Kind.FUNCTION, null, null);
+                                       boolean usesContext,
+                                       boolean readOnly) {
+        return new Tool(name, description, paramsSchema, invoker, usesContext, Tool.Kind.FUNCTION, null, null, readOnly);
     }
 }
