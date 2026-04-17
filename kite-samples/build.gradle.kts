@@ -5,6 +5,7 @@ plugins {
 dependencies {
     implementation(project(":kite-core"))
     implementation(project(":kite-openai"))
+    implementation(project(":kite-anthropic"))
 }
 
 tasks.register<JavaExec>("runSample") {

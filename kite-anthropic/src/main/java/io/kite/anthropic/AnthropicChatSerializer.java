@@ -19,6 +19,7 @@ import io.kite.model.Message;
  *   <li>Assistant tool calls appear as {@code tool_use} content blocks inside an {@code assistant}
  *       message.</li>
  *   <li>Tools are declared with {@code input_schema} (not {@code parameters}).</li>
+ *   <li>Structured outputs go through {@code output_config.format = {type:"json_schema", schema}}.</li>
  * </ul>
  */
 public final class AnthropicChatSerializer {
@@ -117,6 +118,13 @@ public final class AnthropicChatSerializer {
             if (disableParallel) {
                 tc.put("disable_parallel_tool_use", true);
             }
+        }
+
+        if (req.outputSchema() != null) {
+            ObjectNode outputConfig = root.putObject("output_config");
+            ObjectNode format = outputConfig.putObject("format");
+            format.put("type", "json_schema");
+            format.set("schema", req.outputSchema().toJackson());
         }
 
         root.put("stream", stream);

@@ -15,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AnthropicChatSerializerTest {
 
     record Args(String q) {}
+    record Booking(String airline, int flightNumber) {}
 
     @Test
     void systemPromptBecomesTopLevelField() {
@@ -183,5 +184,37 @@ class AnthropicChatSerializerTest {
         JsonNode choice = root.get("tool_choice");
         assertThat(choice.get("type").asText()).isEqualTo("any");
         assertThat(choice.has("disable_parallel_tool_use")).isFalse();
+    }
+
+    @Test
+    void serializesStructuredOutput() {
+        var schema = JsonSchemaGenerator.forRecord(Booking.class);
+        var req = new ChatRequest(
+                "claude-opus-4-7", null,
+                List.of(new Message.User("Book United 123")),
+                List.of(),
+                null, null,
+                schema, "Booking", null, null, false);
+        JsonNode root = JsonCodec.shared().readTree(AnthropicChatSerializer.serialize(req, false));
+        JsonNode format = root.get("output_config").get("format");
+        assertThat(format.get("type").asText()).isEqualTo("json_schema");
+        JsonNode schemaNode = format.get("schema");
+        assertThat(schemaNode).isNotNull();
+        assertThat(schemaNode.get("type").asText()).isEqualTo("object");
+        assertThat(schemaNode.get("additionalProperties").asBoolean()).isFalse();
+        assertThat(schemaNode.get("properties").has("airline")).isTrue();
+        assertThat(schemaNode.get("properties").has("flightNumber")).isTrue();
+    }
+
+    @Test
+    void outputConfigAbsentWhenSchemaNull() {
+        var req = new ChatRequest(
+                "claude-opus-4-7", null,
+                List.of(new Message.User("Hi")),
+                List.of(),
+                null, null,
+                null, null, null, null, false);
+        JsonNode root = JsonCodec.shared().readTree(AnthropicChatSerializer.serialize(req, false));
+        assertThat(root.has("output_config")).isFalse();
     }
 }
