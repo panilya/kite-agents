@@ -165,13 +165,13 @@ public final class RunnerCore {
     private <T> List<ChatRequest.ToolSchema> buildToolSchemas(Agent<T> agent) {
         List<ChatRequest.ToolSchema> out = new ArrayList<>(agent.tools().size() + agent.routes().size());
         for (var tool : agent.tools()) {
-            out.add(new ChatRequest.ToolSchema(tool.name(), tool.description(), tool.paramsSchemaJson()));
+            out.add(new ChatRequest.ToolSchema(tool.name(), tool.description(), tool.paramsSchema()));
         }
         for (var route : agent.routes()) {
             String routeName = routeToolName(route.name());
             String desc = "Transfer the conversation to " + route.name()
                     + (route.description().isEmpty() ? "" : ": " + route.description());
-            out.add(new ChatRequest.ToolSchema(routeName, desc, Tool.EMPTY_PARAMS_SCHEMA_JSON));
+            out.add(new ChatRequest.ToolSchema(routeName, desc, Tool.EMPTY_PARAMS_SCHEMA));
         }
         return out;
     }

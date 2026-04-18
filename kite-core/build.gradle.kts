@@ -3,5 +3,8 @@ plugins {
 }
 
 dependencies {
-    api("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+    api(libs.jackson.databind)
+    api(libs.jackson.datatype.jdk8)
+    api(libs.jackson.datatype.jsr310)
+    testImplementation(libs.json.schema.validator)
 }

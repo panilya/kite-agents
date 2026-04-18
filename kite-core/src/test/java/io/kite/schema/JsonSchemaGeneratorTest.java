@@ -34,6 +34,7 @@ class JsonSchemaGeneratorTest {
         assertThat(json).contains("\"age\"");
         assertThat(json).contains("\"required\":[\"name\",\"age\"]");
         assertThat(json).contains("\"additionalProperties\":false");
+        MetaSchemaValidator.assertValid(json);
     }
 
     @Test
@@ -41,6 +42,7 @@ class JsonSchemaGeneratorTest {
         String json = JsonSchemaGenerator.forRecord(WithDescription.class).writeJson();
         assertThat(json).contains("City and country");
         assertThat(json).contains("Temperature in celsius");
+        MetaSchemaValidator.assertValid(json);
     }
 
     @Test
@@ -48,6 +50,7 @@ class JsonSchemaGeneratorTest {
         String json = JsonSchemaGenerator.forRecord(Nested.class).writeJson();
         assertThat(json).contains("\"inner\"");
         assertThat(json).contains("\"age\"");
+        MetaSchemaValidator.assertValid(json);
     }
 
     @Test
@@ -55,6 +58,7 @@ class JsonSchemaGeneratorTest {
         String json = JsonSchemaGenerator.forRecord(ListOfStrings.class).writeJson();
         assertThat(json).contains("\"type\":\"array\"");
         assertThat(json).contains("\"items\"");
+        MetaSchemaValidator.assertValid(json);
     }
 
     @Test
@@ -62,12 +66,14 @@ class JsonSchemaGeneratorTest {
         String json = JsonSchemaGenerator.forRecord(OptionalField.class).writeJson();
         assertThat(json).contains("\"required\":[\"required\"]");
         assertThat(json).contains("\"optional\"");
+        MetaSchemaValidator.assertValid(json);
     }
 
     @Test
     void enumBecomesStringWithValues() {
         String json = JsonSchemaGenerator.forRecord(WithEnum.class).writeJson();
         assertThat(json).contains("\"enum\":[\"FREE\",\"PRO\",\"ENTERPRISE\"]");
+        MetaSchemaValidator.assertValid(json);
     }
 
     @Test

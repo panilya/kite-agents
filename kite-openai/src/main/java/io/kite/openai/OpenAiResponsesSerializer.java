@@ -6,6 +6,7 @@ import io.kite.ToolChoice;
 import io.kite.internal.json.JsonCodec;
 import io.kite.model.ChatRequest;
 import io.kite.model.Message;
+import io.kite.openai.schema.OpenAiSchemaAdapter;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -86,7 +87,8 @@ public final class OpenAiResponsesSerializer {
                 if (t.description() != null && !t.description().isEmpty()) {
                     tn.put("description", t.description());
                 }
-                tn.set("parameters", codec.readTree(t.paramsSchemaJson()));
+                tn.put("strict", true);
+                tn.set("parameters", OpenAiSchemaAdapter.toStrict(t.paramsSchema()).toJackson());
             }
         }
 
@@ -112,7 +114,7 @@ public final class OpenAiResponsesSerializer {
             format.put("type", "json_schema");
             format.put("name", req.outputName() == null ? "Output" : req.outputName());
             format.put("strict", true);
-            format.set("schema", codec.readTree(req.outputSchema().writeJson()));
+            format.set("schema", OpenAiSchemaAdapter.toStrict(req.outputSchema()).toJackson());
         }
 
         if (req.temperature() != null) root.put("temperature", req.temperature());

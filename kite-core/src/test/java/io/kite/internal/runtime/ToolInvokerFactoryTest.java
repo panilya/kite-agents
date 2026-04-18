@@ -47,7 +47,7 @@ class ToolInvokerFactoryTest {
         assertThat(t.name()).isEqualTo("refund");
         assertThat(t.description()).isEqualTo("Issue a refund");
         assertThat(t.usesContext()).isTrue();
-        String schema = t.paramsSchemaJson();
+        String schema = t.paramsSchema().writeJson();
         assertThat(schema).contains("\"orderId\"");
         assertThat(schema).contains("\"amount\"");
         // @Ctx parameter is NOT in the schema

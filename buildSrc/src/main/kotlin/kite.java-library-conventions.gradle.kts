@@ -32,16 +32,39 @@ tasks.withType<Jar>().configureEach {
     }
 }
 
+val libs = the<org.gradle.accessors.dm.LibrariesForLibs>()
+
 dependencies {
-    "testImplementation"("org.junit.jupiter:junit-jupiter:5.11.0")
-    "testRuntimeOnly"("org.junit.platform:junit-platform-launcher:1.11.0")
-    "testImplementation"("org.assertj:assertj-core:3.26.3")
+    "testImplementation"(libs.junit.jupiter)
+    "testRuntimeOnly"(libs.junit.platform.launcher)
+    "testImplementation"(libs.assertj.core)
 }
 
 tasks.named<Test>("test") {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("live")
+    }
     testLogging {
         events("passed", "failed", "skipped")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
     }
+}
+
+// Opt-in: `./gradlew liveTest` runs only @Tag("live") tests, which are gated on provider env vars
+// (OPENAI_API_KEY / ANTHROPIC_API_KEY). Hits real APIs with cheap models; run before releases.
+tasks.register<Test>("liveTest") {
+    group = "verification"
+    description = "Runs @Tag(\"live\") tests against real provider APIs. Requires env vars."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("live")
+    }
+    testLogging {
+        events("passed", "failed", "skipped")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
+    }
+    // Always re-run — tests are live and may surface provider drift even when classes are unchanged.
+    outputs.upToDateWhen { false }
 }

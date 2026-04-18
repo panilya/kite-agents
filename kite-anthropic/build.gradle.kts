@@ -4,4 +4,5 @@ plugins {
 
 dependencies {
     api(project(":kite-core"))
+    testImplementation(libs.json.schema.validator)
 }

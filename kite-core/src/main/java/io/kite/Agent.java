@@ -133,7 +133,7 @@ public final class Agent<T> {
         };
         SchemaNode schema = new SchemaNode.Obj(
                 Map.of("input", new SchemaNode.Str(
-                        "Prompt/task to send to the " + toolName + " sub-agent", null)),
+                        "Prompt/task to send to the " + toolName + " sub-agent", null, false)),
                 List.of("input"),
                 description,
                 true);

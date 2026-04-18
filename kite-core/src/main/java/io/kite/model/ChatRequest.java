@@ -29,8 +29,8 @@ public record ChatRequest(
     }
 
     /**
-     * Serialized description of one tool the model may call.
-     * paramsSchemaJson is an already-rendered JSON Schema string (cached in the Agent).
+     * Description of one tool the model may call. The {@code paramsSchema} is the provider-agnostic
+     * IR; each provider's serializer applies its own adapter and emits its own wire shape.
      */
-    public record ToolSchema(String name, String description, String paramsSchemaJson) {}
+    public record ToolSchema(String name, String description, SchemaNode paramsSchema) {}
 }

@@ -91,24 +91,11 @@ public final class ToolBuilder {
         List<String> required = new ArrayList<>();
         for (var p : params.values()) {
             SchemaNode node = JsonSchemaGenerator.forType(p.type);
-            if (p.description != null) node = withDescription(node, p.description);
+            if (p.description != null) node = node.withDescription(p.description);
             props.put(p.name, node);
             if (p.required) required.add(p.name);
         }
         return new SchemaNode.Obj(props, required, null, true);
-    }
-
-    private static SchemaNode withDescription(SchemaNode node, String description) {
-        return switch (node) {
-            case SchemaNode.Str s -> new SchemaNode.Str(description, s.format());
-            case SchemaNode.Num n -> new SchemaNode.Num(description);
-            case SchemaNode.Int i -> new SchemaNode.Int(description);
-            case SchemaNode.Bool b -> new SchemaNode.Bool(description);
-            case SchemaNode.Enumr e -> new SchemaNode.Enumr(e.values(), description);
-            case SchemaNode.Arr a -> new SchemaNode.Arr(a.items(), description);
-            case SchemaNode.Obj o -> new SchemaNode.Obj(o.properties(), o.required(), description, o.strict());
-            case SchemaNode.Ref r -> new SchemaNode.Ref(description);
-        };
     }
 
     record ParamDef(String name, Class<?> type, String description, boolean required, Object defaultValue) {}

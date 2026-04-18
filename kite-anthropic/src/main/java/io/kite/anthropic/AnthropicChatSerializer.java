@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.kite.ToolChoice;
+import io.kite.anthropic.schema.AnthropicSchemaAdapter;
 import io.kite.internal.json.JsonCodec;
 import io.kite.model.ChatRequest;
 import io.kite.model.Message;
@@ -91,7 +92,7 @@ public final class AnthropicChatSerializer {
                 if (t.description() != null && !t.description().isEmpty()) {
                     tn.put("description", t.description());
                 }
-                tn.set("input_schema", codec.readTree(t.paramsSchemaJson()));
+                tn.set("input_schema", t.paramsSchema().toJackson());
             }
         }
 
@@ -124,7 +125,7 @@ public final class AnthropicChatSerializer {
             ObjectNode outputConfig = root.putObject("output_config");
             ObjectNode format = outputConfig.putObject("format");
             format.put("type", "json_schema");
-            format.set("schema", req.outputSchema().toJackson());
+            format.set("schema", AnthropicSchemaAdapter.toStrictOutput(req.outputSchema()).toJackson());
         }
 
         root.put("stream", stream);

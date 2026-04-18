@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 /**
  * Thin Jackson facade. One shared ObjectMapper per JVM; unchecked exceptions wrap
@@ -69,6 +71,8 @@ public final class JsonCodec {
 
     private static ObjectMapper buildDefaultMapper() {
         return JsonMapper.builder()
+                .addModule(new Jdk8Module())          // Optional<T> ↔ null / value
+                .addModule(new JavaTimeModule())      // Instant, LocalDate, etc. ↔ ISO-8601 strings
                 .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_PROPERTIES)
                 .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)

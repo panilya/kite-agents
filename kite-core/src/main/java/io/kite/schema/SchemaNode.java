@@ -10,7 +10,13 @@ import java.util.Map;
 
 /**
  * Internal JSON-Schema representation. Used for both tool-parameter schemas and structured-output
- * schemas. Emits a JSON-Schema-compatible JSON string via {@link #writeJson()}.
+ * schemas. {@link #toJackson()} builds a fresh {@link ObjectNode} directly; {@link #writeJson()}
+ * is its string form.
+ *
+ * <p>Leaf variants carry a {@code nullable} flag used by provider adapters to emit
+ * {@code type: ["string", "null"]} unions when a provider's strict mode requires every property
+ * to be {@code required} (OpenAI, Anthropic output_config). The base IR stays provider-agnostic;
+ * see {@code OpenAiSchemaAdapter} / {@code AnthropicSchemaAdapter} for the rewrite.
  */
 public sealed interface SchemaNode
         permits SchemaNode.Obj,
@@ -22,10 +28,26 @@ public sealed interface SchemaNode
                 SchemaNode.Enumr,
                 SchemaNode.Ref {
 
-    String writeJson();
+    ObjectNode toJackson();
 
-    default ObjectNode toJackson() {
-        return JsonCodec.shared().readTree(writeJson()).deepCopy();
+    SchemaNode withDescription(String description);
+
+    default String writeJson() {
+        return toJackson().toString();
+    }
+
+    private static ObjectNode newNode() {
+        return JsonCodec.shared().mapper().createObjectNode();
+    }
+
+    private static void putType(ObjectNode n, String type, boolean nullable) {
+        if (nullable) {
+            ArrayNode arr = n.putArray("type");
+            arr.add(type);
+            arr.add("null");
+        } else {
+            n.put("type", type);
+        }
     }
 
     record Obj(Map<String, SchemaNode> properties, List<String> required, String description, boolean strict)
@@ -36,8 +58,8 @@ public sealed interface SchemaNode
         }
 
         @Override
-        public String writeJson() {
-            ObjectNode n = JsonCodec.shared().mapper().createObjectNode();
+        public ObjectNode toJackson() {
+            ObjectNode n = newNode();
             n.put("type", "object");
             if (description != null) n.put("description", description);
             ObjectNode props = n.putObject("properties");
@@ -45,85 +67,146 @@ public sealed interface SchemaNode
             ArrayNode req = n.putArray("required");
             required.forEach(req::add);
             if (strict) n.put("additionalProperties", false);
-            return n.toString();
+            return n;
+        }
+
+        @Override
+        public Obj withDescription(String description) {
+            return new Obj(properties, required, description, strict);
         }
     }
 
     record Arr(SchemaNode items, String description) implements SchemaNode {
         @Override
-        public String writeJson() {
-            ObjectNode n = JsonCodec.shared().mapper().createObjectNode();
+        public ObjectNode toJackson() {
+            ObjectNode n = newNode();
             n.put("type", "array");
             if (description != null) n.put("description", description);
             n.set("items", items.toJackson());
-            return n.toString();
+            return n;
+        }
+
+        @Override
+        public Arr withDescription(String description) {
+            return new Arr(items, description);
         }
     }
 
-    record Str(String description, String format) implements SchemaNode {
-        public static Str of(String description) { return new Str(description, null); }
+    record Str(String description, String format, boolean nullable) implements SchemaNode {
+        public static Str of(String description) { return new Str(description, null, false); }
 
         @Override
-        public String writeJson() {
-            ObjectNode n = JsonCodec.shared().mapper().createObjectNode();
-            n.put("type", "string");
+        public ObjectNode toJackson() {
+            ObjectNode n = newNode();
+            putType(n, "string", nullable);
             if (description != null) n.put("description", description);
             if (format != null) n.put("format", format);
-            return n.toString();
+            return n;
         }
-    }
 
-    record Num(String description) implements SchemaNode {
         @Override
-        public String writeJson() {
-            ObjectNode n = JsonCodec.shared().mapper().createObjectNode();
-            n.put("type", "number");
-            if (description != null) n.put("description", description);
-            return n.toString();
+        public Str withDescription(String description) {
+            return new Str(description, format, nullable);
+        }
+
+        public Str asNullable() {
+            return nullable ? this : new Str(description, format, true);
         }
     }
 
-    record Int(String description) implements SchemaNode {
+    record Num(String description, boolean nullable) implements SchemaNode {
         @Override
-        public String writeJson() {
-            ObjectNode n = JsonCodec.shared().mapper().createObjectNode();
-            n.put("type", "integer");
+        public ObjectNode toJackson() {
+            ObjectNode n = newNode();
+            putType(n, "number", nullable);
             if (description != null) n.put("description", description);
-            return n.toString();
+            return n;
         }
-    }
 
-    record Bool(String description) implements SchemaNode {
         @Override
-        public String writeJson() {
-            ObjectNode n = JsonCodec.shared().mapper().createObjectNode();
-            n.put("type", "boolean");
-            if (description != null) n.put("description", description);
-            return n.toString();
+        public Num withDescription(String description) {
+            return new Num(description, nullable);
+        }
+
+        public Num asNullable() {
+            return nullable ? this : new Num(description, true);
         }
     }
 
-    record Enumr(List<String> values, String description) implements SchemaNode {
+    record Int(String description, boolean nullable) implements SchemaNode {
+        @Override
+        public ObjectNode toJackson() {
+            ObjectNode n = newNode();
+            putType(n, "integer", nullable);
+            if (description != null) n.put("description", description);
+            return n;
+        }
+
+        @Override
+        public Int withDescription(String description) {
+            return new Int(description, nullable);
+        }
+
+        public Int asNullable() {
+            return nullable ? this : new Int(description, true);
+        }
+    }
+
+    record Bool(String description, boolean nullable) implements SchemaNode {
+        @Override
+        public ObjectNode toJackson() {
+            ObjectNode n = newNode();
+            putType(n, "boolean", nullable);
+            if (description != null) n.put("description", description);
+            return n;
+        }
+
+        @Override
+        public Bool withDescription(String description) {
+            return new Bool(description, nullable);
+        }
+
+        public Bool asNullable() {
+            return nullable ? this : new Bool(description, true);
+        }
+    }
+
+    record Enumr(List<String> values, String description, boolean nullable) implements SchemaNode {
         public Enumr { values = List.copyOf(values); }
 
         @Override
-        public String writeJson() {
-            ObjectNode n = JsonCodec.shared().mapper().createObjectNode();
-            n.put("type", "string");
+        public ObjectNode toJackson() {
+            ObjectNode n = newNode();
+            putType(n, "string", nullable);
             if (description != null) n.put("description", description);
             ArrayNode arr = n.putArray("enum");
             values.forEach(arr::add);
-            return n.toString();
+            if (nullable) arr.addNull();
+            return n;
+        }
+
+        @Override
+        public Enumr withDescription(String description) {
+            return new Enumr(values, description, nullable);
+        }
+
+        public Enumr asNullable() {
+            return nullable ? this : new Enumr(values, description, true);
         }
     }
 
     /** Placeholder for types we decide to opaquely allow. */
     record Ref(String description) implements SchemaNode {
         @Override
-        public String writeJson() {
-            ObjectNode n = JsonCodec.shared().mapper().createObjectNode();
+        public ObjectNode toJackson() {
+            ObjectNode n = newNode();
             if (description != null) n.put("description", description);
-            return n.toString();
+            return n;
+        }
+
+        @Override
+        public Ref withDescription(String description) {
+            return new Ref(description);
         }
     }
 }

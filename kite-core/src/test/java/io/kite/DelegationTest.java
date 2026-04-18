@@ -62,7 +62,7 @@ class DelegationTest {
         var schema = firstReq.tools().get(0);
         assertThat(schema.name()).isEqualTo("researcher");
         assertThat(schema.description()).isEqualTo("Research a topic");
-        assertThat(schema.paramsSchemaJson()).contains("\"input\"").contains("\"required\":[\"input\"]");
+        assertThat(schema.paramsSchema().writeJson()).contains("\"input\"").contains("\"required\":[\"input\"]");
         kite.close();
     }
 

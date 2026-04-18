@@ -9,6 +9,7 @@ import io.kite.schema.JsonSchemaGenerator;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -16,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class OpenAiResponsesSerializerTest {
 
     record Booking(String airline, String flight) {}
+    record BookingWithOptional(String airline, Optional<String> seat) {}
 
     @Test
     void serializesSimpleUserMessage() {
@@ -39,7 +41,7 @@ class OpenAiResponsesSerializerTest {
 
     @Test
     void serializesToolsInFlatResponsesFormat() {
-        String schema = JsonSchemaGenerator.forRecord(Booking.class).writeJson();
+        var schema = JsonSchemaGenerator.forRecord(Booking.class);
         var req = new ChatRequest(
                 "gpt-4o", null,
                 List.of(new Message.User("Book me")),
@@ -51,12 +53,48 @@ class OpenAiResponsesSerializerTest {
         assertThat(tools).isNotNull();
         assertThat(tools.isArray()).isTrue();
         JsonNode tool = tools.get(0);
-        // Flat shape: type/name/description/parameters all at top level, no nested "function".
+        // Flat shape: type/name/description/parameters/strict all at top level, no nested "function".
         assertThat(tool.get("type").asText()).isEqualTo("function");
         assertThat(tool.get("name").asText()).isEqualTo("book");
+        assertThat(tool.get("strict").asBoolean()).isTrue();
         assertThat(tool.has("function")).isFalse();
         assertThat(tool.get("parameters")).isNotNull();
         assertThat(root.get("stream").asBoolean()).isTrue();
+    }
+
+    @Test
+    void toolParametersGoThroughStrictAdapter_optionalBecomesNullableInRequired() {
+        var schema = JsonSchemaGenerator.forRecord(BookingWithOptional.class);
+        var req = new ChatRequest(
+                "gpt-4o", null,
+                List.of(new Message.User("Book me")),
+                List.of(new ChatRequest.ToolSchema("book", "", schema)),
+                null, null,
+                null, null, null, null, false);
+        JsonNode params = JsonCodec.shared().readTree(OpenAiResponsesSerializer.serialize(req, false))
+                .get("tools").get(0).get("parameters");
+        // Every property in required, optional leaf is a nullable union.
+        assertThat(params.get("required").toString()).contains("airline").contains("seat");
+        assertThat(params.get("properties").get("seat").get("type").toString())
+                .isEqualTo("[\"string\",\"null\"]");
+    }
+
+    @Test
+    void outputSchemaGoesThroughStrictAdapter() {
+        var schema = JsonSchemaGenerator.forRecord(BookingWithOptional.class);
+        var req = new ChatRequest(
+                "gpt-4o", null,
+                List.of(new Message.User("Extract")),
+                List.of(),
+                null, null,
+                schema, "Booking", null, null, false);
+        JsonNode format = JsonCodec.shared().readTree(OpenAiResponsesSerializer.serialize(req, false))
+                .get("text").get("format");
+        assertThat(format.get("strict").asBoolean()).isTrue();
+        JsonNode s = format.get("schema");
+        assertThat(s.get("required").toString()).contains("airline").contains("seat");
+        assertThat(s.get("properties").get("seat").get("type").toString())
+                .isEqualTo("[\"string\",\"null\"]");
     }
 
     @Test

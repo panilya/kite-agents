@@ -14,13 +14,12 @@ import java.util.function.Function;
  */
 public final class Tool {
 
-    public static final String EMPTY_PARAMS_SCHEMA_JSON =
-            "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}";
+    public static final SchemaNode EMPTY_PARAMS_SCHEMA =
+            new SchemaNode.Obj(java.util.Map.of(), java.util.List.of(), null, true);
 
     private final String name;
     private final String description;
     private final SchemaNode paramsSchema;
-    private final String paramsSchemaJson;
     private final ToolInvoker invoker;
     private final boolean usesContext;
     private final Kind kind;
@@ -41,8 +40,7 @@ public final class Tool {
                  boolean readOnly) {
         this.name = Objects.requireNonNull(name, "name");
         this.description = description == null ? "" : description;
-        this.paramsSchema = paramsSchema;
-        this.paramsSchemaJson = paramsSchema == null ? EMPTY_PARAMS_SCHEMA_JSON : paramsSchema.writeJson();
+        this.paramsSchema = paramsSchema == null ? EMPTY_PARAMS_SCHEMA : paramsSchema;
         this.invoker = Objects.requireNonNull(invoker, "invoker");
         this.usesContext = usesContext;
         this.kind = kind;
@@ -82,7 +80,6 @@ public final class Tool {
     public String name() { return name; }
     public String description() { return description; }
     public SchemaNode paramsSchema() { return paramsSchema; }
-    public String paramsSchemaJson() { return paramsSchemaJson; }
     public boolean usesContext() { return usesContext; }
     public Kind kind() { return kind; }
     public Agent<?> routeTarget() { return delegateTarget; }

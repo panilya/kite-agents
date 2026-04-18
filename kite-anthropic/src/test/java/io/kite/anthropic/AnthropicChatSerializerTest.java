@@ -9,13 +9,16 @@ import io.kite.schema.JsonSchemaGenerator;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AnthropicChatSerializerTest {
 
     record Args(String q) {}
+    record ArgsWithOptional(String q, Optional<Integer> limit) {}
     record Booking(String airline, int flightNumber) {}
+    record BookingWithOptional(String airline, Optional<Integer> flightNumber) {}
 
     @Test
     void systemPromptBecomesTopLevelField() {
@@ -38,7 +41,7 @@ class AnthropicChatSerializerTest {
                 "claude-3-5-sonnet-20241022", null,
                 List.of(new Message.User("Search")),
                 List.of(new ChatRequest.ToolSchema("search", "Search the web",
-                        JsonSchemaGenerator.forRecord(Args.class).writeJson())),
+                        JsonSchemaGenerator.forRecord(Args.class))),
                 null, null,
                 null, null, null, null, false);
         JsonNode root = JsonCodec.shared().readTree(AnthropicChatSerializer.serialize(req, false));
@@ -46,6 +49,39 @@ class AnthropicChatSerializerTest {
         assertThat(tool.get("name").asText()).isEqualTo("search");
         assertThat(tool.has("input_schema")).isTrue();
         assertThat(tool.has("parameters")).isFalse();
+    }
+
+    @Test
+    void toolInputSchemaKeepsOptionalAbsentFromRequired_noAdapterRewrite() {
+        var req = new ChatRequest(
+                "claude-3-5-sonnet-20241022", null,
+                List.of(new Message.User("Search")),
+                List.of(new ChatRequest.ToolSchema("search", "",
+                        JsonSchemaGenerator.forRecord(ArgsWithOptional.class))),
+                null, null,
+                null, null, null, null, false);
+        JsonNode inputSchema = JsonCodec.shared().readTree(AnthropicChatSerializer.serialize(req, false))
+                .get("tools").get(0).get("input_schema");
+        // Anthropic tool path is lenient: optional stays out of required, and its leaf is NOT nullable.
+        assertThat(inputSchema.get("required").toString()).contains("q").doesNotContain("limit");
+        assertThat(inputSchema.get("properties").get("limit").get("type").asText()).isEqualTo("integer");
+    }
+
+    @Test
+    void outputConfigGoesThroughStrictAdapter() {
+        var schema = JsonSchemaGenerator.forRecord(BookingWithOptional.class);
+        var req = new ChatRequest(
+                "claude-3-5-sonnet-20241022", null,
+                List.of(new Message.User("Extract")),
+                List.of(),
+                null, null,
+                schema, "Booking", null, null, false);
+        JsonNode outputSchema = JsonCodec.shared().readTree(AnthropicChatSerializer.serialize(req, false))
+                .get("output_config").get("format").get("schema");
+        // Strict output: flightNumber becomes nullable-in-required.
+        assertThat(outputSchema.get("required").toString()).contains("airline").contains("flightNumber");
+        assertThat(outputSchema.get("properties").get("flightNumber").get("type").toString())
+                .isEqualTo("[\"integer\",\"null\"]");
     }
 
     @Test
