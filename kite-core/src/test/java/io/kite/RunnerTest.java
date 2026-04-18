@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * End-to-end tests covering both runLoop and streamLoop via MockModelProvider. These exercise
+ * End-to-end tests covering both Runner.run and Runner.stream via MockModelProvider. These exercise
  * the shared RunnerCore and verify that run/stream produce equivalent results on identical
  * scripted provider responses.
  */

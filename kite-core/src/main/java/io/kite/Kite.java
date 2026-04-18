@@ -40,37 +40,37 @@ public final class Kite implements AutoCloseable {
     /* ============================ Non-streaming entry points ============================ */
 
     public Reply run(Agent<Void> agent, String input) {
-        return runner.runLoop(agent, input, null, null);
+        return runner.run(agent, input, null, null);
     }
 
     public Reply run(Agent<Void> agent, String input, String conversationId) {
-        return runner.runLoop(agent, input, conversationId, null);
+        return runner.run(agent, input, conversationId, null);
     }
 
     public <T> Reply run(Agent<T> agent, String input, T context) {
-        return runner.runLoop(agent, input, null, context);
+        return runner.run(agent, input, null, context);
     }
 
     public <T> Reply run(Agent<T> agent, String input, String conversationId, T context) {
-        return runner.runLoop(agent, input, conversationId, context);
+        return runner.run(agent, input, conversationId, context);
     }
 
     /* ============================== Streaming entry points ============================== */
 
     public void stream(Agent<Void> agent, String input, Consumer<Event> onEvent) {
-        runner.streamLoop(agent, input, null, null, onEvent);
+        runner.stream(agent, input, null, null, onEvent);
     }
 
     public void stream(Agent<Void> agent, String input, String conversationId, Consumer<Event> onEvent) {
-        runner.streamLoop(agent, input, conversationId, null, onEvent);
+        runner.stream(agent, input, conversationId, null, onEvent);
     }
 
     public <T> void stream(Agent<T> agent, String input, T context, Consumer<Event> onEvent) {
-        runner.streamLoop(agent, input, null, context, onEvent);
+        runner.stream(agent, input, null, context, onEvent);
     }
 
     public <T> void stream(Agent<T> agent, String input, String conversationId, T context, Consumer<Event> onEvent) {
-        runner.streamLoop(agent, input, conversationId, context, onEvent);
+        runner.stream(agent, input, conversationId, context, onEvent);
     }
 
     @Override
