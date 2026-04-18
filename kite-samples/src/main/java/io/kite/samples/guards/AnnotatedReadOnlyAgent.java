@@ -1,7 +1,9 @@
 package io.kite.samples.guards;
 
 import io.kite.Agent;
-import io.kite.Guard;
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
+import io.kite.guards.InputGuard;
 import io.kite.Kite;
 import io.kite.Status;
 import io.kite.annotations.Tool;
@@ -62,9 +64,9 @@ public final class AnnotatedReadOnlyAgent {
                 .tracing(io.kite.tracing.Tracing.off())
                 .build()) {
 
-            Guard<Void> slowPolicy = Guard.input("slow-policy")
+            InputGuard<Void> slowPolicy = Guard.<Void>input("slow-policy")
                     .parallel()
-                    .check(input -> { sleepQuiet(GUARD_LATENCY); return Guard.pass(); });
+                    .check(in -> { sleepQuiet(GUARD_LATENCY); return GuardDecision.allow(); });
 
             var agent = Agent.builder()
                     .model("gpt-4o-mini")

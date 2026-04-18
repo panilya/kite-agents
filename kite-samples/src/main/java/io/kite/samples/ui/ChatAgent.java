@@ -1,7 +1,10 @@
 package io.kite.samples.ui;
 
 import io.kite.Agent;
-import io.kite.Guard;
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
+import io.kite.guards.InputGuard;
+import io.kite.guards.OutputGuard;
 import io.kite.Tool;
 
 import java.time.ZoneId;
@@ -83,26 +86,32 @@ final class ChatAgent {
                 .build();
     }
 
-    private static Guard<UserCtx> noHackingGuard() {
-        return Guard.<UserCtx>inputTyped("no-hacking")
+    private static InputGuard<UserCtx> noHackingGuard() {
+        return Guard.<UserCtx>input("no-hacking")
                 .blocking()
-                .check((ctx, input) -> input.toLowerCase().contains("hack")
-                        ? Guard.block("I can't help with hacking.")
-                        : Guard.pass());
+                .check(in -> {
+                    var text = in.userText();
+                    return text.toLowerCase().contains("hack")
+                            ? GuardDecision.block("I can't help with hacking.")
+                            : GuardDecision.allow();
+                });
     }
 
-    private static Guard<UserCtx> maxLengthGuard() {
-        return Guard.<UserCtx>inputTyped("max-length")
+    private static InputGuard<UserCtx> maxLengthGuard() {
+        return Guard.<UserCtx>input("max-length")
                 .blocking()
-                .check((ctx, input) -> input.length() > 2000
-                        ? Guard.block("Message is too long (max 2000 chars).")
-                        : Guard.pass());
+                .check(in -> {
+                    var text = in.userText();
+                    return text.length() > 2000
+                            ? GuardDecision.block("Message is too long (max 2000 chars).")
+                            : GuardDecision.allow();
+                });
     }
 
-    private static Guard<UserCtx> noEmptyReplyGuard() {
-        return Guard.<UserCtx>outputTyped("no-empty-reply")
-                .check((ctx, output) -> (output == null || output.isBlank())
-                        ? Guard.block("Model returned an empty response.")
-                        : Guard.pass());
+    private static OutputGuard<UserCtx> noEmptyReplyGuard() {
+        return Guard.<UserCtx>output("no-empty-reply")
+                .check(in -> (in.generatedResponse() == null || in.generatedResponse().isBlank())
+                        ? GuardDecision.block("Model returned an empty response.")
+                        : GuardDecision.allow());
     }
 }

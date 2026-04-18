@@ -3,6 +3,8 @@ package io.kite;
 import io.kite.annotations.Ctx;
 import io.kite.annotations.Tool;
 import io.kite.annotations.ToolParam;
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
 import io.kite.internal.runtime.MockModelProvider;
 import io.kite.model.ChatChunk;
 import io.kite.model.Message;
@@ -173,7 +175,7 @@ class RunnerTest {
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
         var block = Guard.input("block-all")
                 .blocking()
-                .check((ctx, input) -> Guard.block("nope"));
+                .check(in -> GuardDecision.block("nope"));
         var agent = Agent.builder().model("gpt-test")
                 .inputGuards(List.of(block))
                 .build();

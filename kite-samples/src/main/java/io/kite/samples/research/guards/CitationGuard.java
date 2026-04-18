@@ -1,6 +1,8 @@
 package io.kite.samples.research.guards;
 
-import io.kite.Guard;
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
+import io.kite.guards.OutputGuard;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -22,14 +24,15 @@ public final class CitationGuard {
 
     private CitationGuard() {}
 
-    public static <T> Guard<T> create() {
-        return Guard.<T>outputTyped("citation-presence").check(output -> {
+    public static <T> OutputGuard<T> create() {
+        return Guard.<T>output("citation-presence").check(in -> {
+            String output = in.generatedResponse();
             if (output == null || output.isBlank()) {
-                return Guard.block("Empty report — no content to cite.");
+                return GuardDecision.block("Empty report — no content to cite.");
             }
             String text = output.trim();
             if (!SOURCES_SECTION.matcher(text).find()) {
-                return Guard.block(
+                return GuardDecision.block(
                         "Report has no `## Sources` section. Every deep-research report must list its sources.");
             }
             java.util.Set<Integer> distinct = new java.util.HashSet<>();
@@ -42,11 +45,11 @@ public final class CitationGuard {
                 }
             }
             if (distinct.size() < MIN_DISTINCT_CITATIONS) {
-                return Guard.block(
+                return GuardDecision.block(
                         "Report has " + distinct.size() + " distinct citation marker(s); need at least "
                                 + MIN_DISTINCT_CITATIONS + " to justify the claims.");
             }
-            return Guard.pass();
+            return GuardDecision.allow();
         });
     }
 }

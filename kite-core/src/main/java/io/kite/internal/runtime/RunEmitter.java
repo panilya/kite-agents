@@ -1,6 +1,7 @@
 package io.kite.internal.runtime;
 
 import io.kite.Event;
+import io.kite.guards.GuardOutcome;
 import io.kite.Reply;
 import io.kite.model.ChatRequest;
 import io.kite.model.ChatResponse;
@@ -11,6 +12,7 @@ import io.kite.tracing.TraceEvent;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Unified sink for everything {@link Runner} wants to observe about a run — trace events and
@@ -23,6 +25,12 @@ import java.util.List;
  * {@link #firstTurnBlock()} are hooks for the first-turn guard race. Non-streaming impls are
  * no-ops; {@link StreamingEmitter} uses them to buffer or gate streamed deltas until the
  * guards resolve.
+ *
+ * <p>{@link #beginOutputGating()}, {@link #outputGatingCommit()}, and
+ * {@link #outputGatingDiscard()} are hooks for output-guard gating on the final turn. They
+ * buffer text deltas while the agent streams the response so the deltas can be dropped if
+ * an output guard blocks. On the first turn both gates can be active: the first-turn buffer
+ * flushes into the output-gating buffer rather than straight to downstream.
  */
 sealed interface RunEmitter permits RunEmitter.TraceOnlyEmitter, RunEmitter.StreamingEmitter {
 
@@ -38,7 +46,8 @@ sealed interface RunEmitter permits RunEmitter.TraceOnlyEmitter, RunEmitter.Stre
 
     void transfer(String from, String to);
 
-    void blocked(String agent, String guard, String message);
+    /** Emitted per guard check (pass or block). Streaming clients receive {@link Event.GuardCheck}. */
+    void guardCheck(String agent, GuardOutcome outcome);
 
     void error(String agent, Throwable cause);
 
@@ -54,6 +63,14 @@ sealed interface RunEmitter permits RunEmitter.TraceOnlyEmitter, RunEmitter.Stre
     void firstTurnCommit();
 
     void firstTurnBlock();
+
+    /* -------- output-guard gating (no-op for non-streaming) -------- */
+
+    void beginOutputGating();
+
+    void outputGatingCommit();
+
+    void outputGatingDiscard();
 
     static RunEmitter traceOnly(RunnerCore core, TraceContext tctx) {
         return new TraceOnlyEmitter(core, tctx);
@@ -97,7 +114,7 @@ sealed interface RunEmitter permits RunEmitter.TraceOnlyEmitter, RunEmitter.Stre
             core.trace(tctx, new TraceEvent.Transfer(Instant.now(), from, to));
         }
 
-        @Override public void blocked(String agent, String guard, String message) {}
+        @Override public void guardCheck(String agent, GuardOutcome outcome) {}
 
         @Override public void error(String agent, Throwable cause) {
             core.trace(tctx, new TraceEvent.Error(Instant.now(), agent, cause.getMessage(), cause));
@@ -112,19 +129,28 @@ sealed interface RunEmitter permits RunEmitter.TraceOnlyEmitter, RunEmitter.Stre
         @Override public void firstTurnCommit() {}
 
         @Override public void firstTurnBlock() {}
+
+        @Override public void beginOutputGating() {}
+
+        @Override public void outputGatingCommit() {}
+
+        @Override public void outputGatingDiscard() {}
     }
 
     /* ==================================================================================== */
 
     /**
-     * Traces <em>and</em> emits {@link Event}s to the caller's consumer. During the first-turn
-     * guard race, streamed deltas can be buffered (BUFFER mode) or gated (PASSTHROUGH mode)
-     * via {@link #beginFirstTurnGating(boolean)}; the sink then either flushes on
-     * {@link #firstTurnCommit()} or discards on {@link #firstTurnBlock()}.
+     * Traces <em>and</em> emits {@link Event}s to the caller's consumer. Two composable
+     * gates can be active on streamed deltas: the first-turn guard race (BUFFER or
+     * PASSTHROUGH) and the output-guard gate (always BUFFER, on the final turn). When
+     * both are active events flow {@code firstTurnBuffer -> outputBuffer -> downstream};
+     * committing/sealing each stage recomputes {@link #active} so the next event lands
+     * in the correct place.
      *
-     * <p>All other events (tool calls, transfers, etc.) are emitted only <em>after</em> the
-     * first-turn race resolves, so they never require buffering — they just go through the
-     * currently active sink, which by that point is straight record-and-forward.
+     * <p>All non-delta events (tool calls, transfers, etc.) are emitted only <em>after</em>
+     * the first-turn race resolves. Tool-call and final-turn classification happen after
+     * {@code turn.run} returns, so tool calls never need buffering — they flow through
+     * {@code active} at whatever stage it's at (no gate active, or output gate pending).
      */
     final class StreamingEmitter implements RunEmitter {
         private final RunnerCore core;
@@ -135,6 +161,7 @@ sealed interface RunEmitter permits RunEmitter.TraceOnlyEmitter, RunEmitter.Stre
         private java.util.function.Consumer<Event> active;
         private StreamBuffer firstTurnBuffer;
         private java.util.concurrent.atomic.AtomicBoolean passthroughGate;
+        private StreamBuffer outputBuffer;
 
         StreamingEmitter(RunnerCore core, TraceContext tctx, java.util.function.Consumer<Event> downstream) {
             this.core = core;
@@ -173,8 +200,10 @@ sealed interface RunEmitter permits RunEmitter.TraceOnlyEmitter, RunEmitter.Stre
             core.trace(tctx, new TraceEvent.Transfer(Instant.now(), from, to));
         }
 
-        @Override public void blocked(String agent, String guard, String message) {
-            active.accept(new Event.Blocked(agent, guard, message));
+        @Override public void guardCheck(String agent, GuardOutcome outcome) {
+            // Guard checks always reach downstream directly — gating is about hiding content
+            // that *preceded* the decision, not the decision itself.
+            recordAndForward.accept(new Event.GuardCheck(agent, outcome));
         }
 
         @Override public void error(String agent, Throwable cause) {
@@ -183,7 +212,7 @@ sealed interface RunEmitter permits RunEmitter.TraceOnlyEmitter, RunEmitter.Stre
         }
 
         @Override public void done(String agent, Reply reply) {
-            active.accept(new Event.Done(agent, reply));
+            recordAndForward.accept(new Event.Done(agent, reply));
         }
 
         @Override public List<Event> transcript() { return List.copyOf(transcript); }
@@ -191,35 +220,78 @@ sealed interface RunEmitter permits RunEmitter.TraceOnlyEmitter, RunEmitter.Stre
         @Override public void beginFirstTurnGating(boolean buffer) {
             if (buffer) {
                 firstTurnBuffer = new StreamBuffer(recordAndForward);
-                active = firstTurnBuffer::accept;
             } else {
                 passthroughGate = new java.util.concurrent.atomic.AtomicBoolean(true);
-                var gate = passthroughGate;
-                active = e -> { if (gate.get()) recordAndForward.accept(e); };
             }
+            refreshActive();
         }
 
         @Override public void firstTurnCommit() {
             if (firstTurnBuffer != null) {
-                firstTurnBuffer.flushAndSeal(recordAndForward);
+                firstTurnBuffer.flushAndSeal(nextAfterFirstTurn());
                 firstTurnBuffer = null;
             }
             passthroughGate = null;
-            active = recordAndForward;
+            refreshActive();
         }
 
         @Override public void firstTurnBlock() {
             // Seal the gating so any late-arriving chunk deltas from the cancelled stream get
             // dropped (BUFFER) or gated (PASSTHROUGH). Subsequent events emitted by the main
-            // loop — Event.Blocked, Event.Done — still need to reach downstream, so active
-            // reverts to the straight record-and-forward sink.
+            // loop — Event.GuardCheck, Event.Done — still need to reach downstream, so active
+            // reverts to the next stage (which, since output gating is never engaged alongside
+            // a first-turn block, is the straight record-and-forward sink).
             if (firstTurnBuffer != null) {
                 firstTurnBuffer.discardAndSeal();
                 firstTurnBuffer = null;
             }
             if (passthroughGate != null) passthroughGate.set(false);
             passthroughGate = null;
-            active = recordAndForward;
+            refreshActive();
+        }
+
+        @Override public void beginOutputGating() {
+            if (outputBuffer == null) outputBuffer = new StreamBuffer(recordAndForward);
+            refreshActive();
+        }
+
+        @Override public void outputGatingCommit() {
+            if (outputBuffer != null) {
+                outputBuffer.flushAndSeal(recordAndForward);
+                outputBuffer = null;
+            }
+            refreshActive();
+        }
+
+        @Override public void outputGatingDiscard() {
+            if (outputBuffer != null) {
+                outputBuffer.discardAndSeal();
+                outputBuffer = null;
+            }
+            refreshActive();
+        }
+
+        /**
+         * Recompute {@link #active} to point at the earliest open pipeline stage:
+         * firstTurnBuffer, then passthrough gate, then outputBuffer, then record-and-forward.
+         */
+        private void refreshActive() {
+            if (firstTurnBuffer != null) {
+                active = firstTurnBuffer::accept;
+            } else if (passthroughGate != null) {
+                var gate = passthroughGate;
+                Consumer<Event> next = outputBuffer != null ? outputBuffer::accept : recordAndForward;
+                active = e -> { if (gate.get()) next.accept(e); };
+            } else if (outputBuffer != null) {
+                active = outputBuffer::accept;
+            } else {
+                active = recordAndForward;
+            }
+        }
+
+        /** Where firstTurnBuffer flushes on commit — the next open stage after it. */
+        private Consumer<Event> nextAfterFirstTurn() {
+            return outputBuffer != null ? outputBuffer::accept : recordAndForward;
         }
     }
 }

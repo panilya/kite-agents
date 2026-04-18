@@ -1,5 +1,7 @@
 package io.kite;
 
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
 import io.kite.internal.runtime.MockModelProvider;
 import io.kite.model.Message;
 import io.kite.tracing.Tracing;
@@ -58,7 +60,7 @@ class RuntimePersistenceTest {
         var mock = MockModelProvider.builder().build();
         var store = new RecordingStore();
         var kite = Kite.builder().provider(mock).conversationStore(store).tracing(Tracing.off()).build();
-        var blocker = Guard.input("blk").blocking().check((c, in) -> Guard.block("nope"));
+        var blocker = Guard.input("blk").blocking().check(in -> GuardDecision.block("nope"));
         var agent = Agent.builder().model("gpt-test").inputGuards(List.of(blocker)).build();
 
         kite.run(agent, "hi", "conv-bk");

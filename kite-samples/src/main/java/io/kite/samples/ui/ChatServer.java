@@ -190,10 +190,11 @@ public final class ChatServer {
                     n.put("to", t.to());
                     sink.send("transfer", JSON.writeValueAsString(n));
                 }
-                case Event.Blocked b -> {
+                case Event.GuardCheck gc -> {
+                    if (!gc.outcome().blocked()) break;
                     ObjectNode n = JSON.createObjectNode();
-                    n.put("guard", b.guard());
-                    n.put("message", b.message());
+                    n.put("guard", gc.outcome().name());
+                    n.put("message", gc.outcome().message());
                     sink.send("blocked", JSON.writeValueAsString(n));
                 }
                 case Event.Done done -> {

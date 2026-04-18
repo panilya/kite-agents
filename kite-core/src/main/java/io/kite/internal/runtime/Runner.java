@@ -3,7 +3,8 @@ package io.kite.internal.runtime;
 import io.kite.Agent;
 import io.kite.AgentRef;
 import io.kite.Event;
-import io.kite.GuardResult;
+import io.kite.guards.GuardOutcome;
+import io.kite.guards.GuardResults;
 import io.kite.Reply;
 import io.kite.RunInterruptedException;
 import io.kite.Tool;
@@ -80,16 +81,29 @@ public final class Runner {
 
     private <T> Reply execute(Agent<T> root, String input, String conversationId, T ctx,
                               LlmTurn turn, RunEmitter emitter, TraceContext tctx) {
-        GuardResult blocking = core.runInputBlocking(root, ctx, input, tctx);
-        if (blocking.blocked()) {
-            emitter.blocked(root.name(), blocking.guard(), blocking.message());
-            return Reply.blocked(blocking, refOf(root), Usage.ZERO, tctx.traceId(), emitter.transcript());
-        }
-
-        ParallelGuardHandle guards = core.startInputParallel(root, ctx, input, tctx);
-
         List<Message> history = core.loadHistory(conversationId);
         history.add(new Message.User(input));
+
+        List<GuardOutcome> inputOutcomes = new ArrayList<>();
+        List<GuardOutcome> outputOutcomes = new ArrayList<>();
+
+        List<GuardOutcome> blockingOutcomes = core.runInputBlocking(
+                root, ctx, Collections.unmodifiableList(history), tctx, o -> {
+                    inputOutcomes.add(o);
+                    emitter.guardCheck(root.name(), o);
+                });
+        GuardOutcome firstBlock = firstBlocked(blockingOutcomes);
+        if (firstBlock != null) {
+            var guards = new GuardResults(inputOutcomes, outputOutcomes);
+            return Reply.blocked(guards, refOf(root), Usage.ZERO, tctx.traceId(), emitter.transcript());
+        }
+
+        ParallelGuardHandle guards = core.startInputParallel(
+                root, ctx, Collections.unmodifiableList(history), tctx, o -> {
+                    inputOutcomes.add(o);
+                    emitter.guardCheck(root.name(), o);
+                });
+
         TurnState<T> state = new TurnState<>(root, history);
 
         boolean streaming = (turn == LlmTurn.STREAM);
@@ -107,11 +121,19 @@ public final class Runner {
             Duration elapsed;
             Map<String, SpeculativeOutcome> specs = Map.of();
 
+            // Buffer streamed deltas for this turn when the agent has output guards. The
+            // turn may turn out to be final (run output guard, flush on pass / discard on
+            // block) or have tool calls (flush immediately). We don't know which until
+            // turn.run returns, so we buffer unconditionally and classify afterwards.
+            boolean gateOutput = streaming && !state.current.outputGuards().isEmpty();
+            if (gateOutput) emitter.beginOutputGating();
+
             if (state.firstTurn) {
                 FirstTurnOutcome outcome = raceFirstTurn(turn, provider, req, state.current, ctx, delegate, guards, emitter);
-                if (outcome instanceof FirstTurnOutcome.Blocked(GuardResult gr)) {
-                    emitter.blocked(root.name(), gr.guard(), gr.message());
-                    return Reply.blocked(gr, refOf(root), Usage.ZERO, tctx.traceId(), emitter.transcript());
+                if (outcome instanceof FirstTurnOutcome.Blocked(GuardOutcome g)) {
+                    if (gateOutput) emitter.outputGatingDiscard();
+                    var results = new GuardResults(inputOutcomes, outputOutcomes);
+                    return Reply.blocked(results, refOf(root), Usage.ZERO, tctx.traceId(), emitter.transcript());
                 }
                 var committed = (FirstTurnOutcome.Committed) outcome;
                 resp = committed.response();
@@ -126,22 +148,36 @@ public final class Runner {
 
             emitter.llmResponse(state.current.name(), resp, elapsed);
             state.usage = state.usage.plus(resp.usage());
-            history.add(new Message.Assistant(resp.content(), resp.toolCalls()));
             state.lastText = resp.content() == null ? "" : resp.content();
 
             if (!resp.hasToolCalls()) {
-                GuardResult after = core.runOutput(state.current, ctx, state.lastText, tctx);
-                if (after.blocked()) {
-                    emitter.blocked(state.current.name(), after.guard(), after.message());
-                    return Reply.blocked(after, refOf(state.current), state.usage, tctx.traceId(), emitter.transcript());
+                // Final turn — run output guards against history (pre-append) + generatedResponse.
+                List<GuardOutcome> afterOutcomes = core.runOutput(
+                        state.current, ctx, Collections.unmodifiableList(history), state.lastText, tctx, o -> {
+                            outputOutcomes.add(o);
+                            emitter.guardCheck(state.current.name(), o);
+                        });
+                GuardOutcome afterBlock = firstBlocked(afterOutcomes);
+                if (afterBlock != null) {
+                    if (gateOutput) emitter.outputGatingDiscard();
+                    var results = new GuardResults(inputOutcomes, outputOutcomes);
+                    return Reply.blocked(results, refOf(state.current), state.usage, tctx.traceId(), emitter.transcript());
                 }
+                if (gateOutput) emitter.outputGatingCommit();
+                // Passed — now append the assistant reply and persist.
+                history.add(new Message.Assistant(state.lastText, resp.toolCalls()));
                 if (state.current.outputType() != null && !state.lastText.isEmpty()) {
                     state.lastStructured = core.codec().readTree(state.lastText);
                 }
                 core.saveHistory(conversationId, history);
-                return Reply.ok(state.lastText, refOf(state.current), state.lastStructured,
+                var results = new GuardResults(inputOutcomes, outputOutcomes);
+                return Reply.ok(state.lastText, refOf(state.current), state.lastStructured, results,
                         state.usage, tctx.traceId(), emitter.transcript());
             }
+
+            // Non-final turn: append the assistant message (with tool calls) and keep going.
+            history.add(new Message.Assistant(resp.content(), resp.toolCalls()));
+            if (gateOutput) emitter.outputGatingCommit();
 
             Agent<T> routeTarget = detectRoute(state.current, resp.toolCalls());
             if (routeTarget != null) {
@@ -154,7 +190,13 @@ public final class Runner {
         }
 
         core.saveHistory(conversationId, history);
-        return Reply.maxTurns(state.lastText, refOf(state.current), state.usage, tctx.traceId(), emitter.transcript());
+        var results = new GuardResults(inputOutcomes, outputOutcomes);
+        return Reply.maxTurns(state.lastText, refOf(state.current), results, state.usage, tctx.traceId(), emitter.transcript());
+    }
+
+    private static GuardOutcome firstBlocked(List<GuardOutcome> outcomes) {
+        for (var o : outcomes) if (o.blocked()) return o;
+        return null;
     }
 
     /**
@@ -190,11 +232,11 @@ public final class Runner {
                 () -> turn.run(provider, req, agentName, emitter), core.vexec());
 
         FirstTurnRace.StepResult step = FirstTurnRace.awaitFirstStep(llmFuture, guards);
-        if (step instanceof FirstTurnRace.StepResult.EarlyBlock(GuardResult gr)) {
+        if (step instanceof FirstTurnRace.StepResult.EarlyBlock(GuardOutcome o)) {
             llmFuture.cancel(true);
             guards.cancelAll();
             emitter.firstTurnBlock();
-            return new FirstTurnOutcome.Blocked(gr);
+            return new FirstTurnOutcome.Blocked(o);
         }
 
         ChatResponse resp = ((FirstTurnRace.StepResult.LlmReady) step).response();
@@ -203,11 +245,12 @@ public final class Runner {
         Map<String, CompletableFuture<SpeculativeOutcome>> specFutures =
                 dispatchSpeculatives(partition.readOnlyCalls(), current, ctx, delegate);
 
-        GuardResult guardResult = guards.completion().join();
-        if (guardResult.blocked()) {
+        List<GuardOutcome> finalOutcomes = guards.allOutcomes().join();
+        GuardOutcome firstBlock = firstBlocked(finalOutcomes);
+        if (firstBlock != null) {
             cancelAll(specFutures);
             emitter.firstTurnBlock();
-            return new FirstTurnOutcome.Blocked(guardResult);
+            return new FirstTurnOutcome.Blocked(firstBlock);
         }
 
         emitter.firstTurnCommit();
@@ -357,7 +400,7 @@ public final class Runner {
     }
 
     private sealed interface FirstTurnOutcome {
-        record Blocked(GuardResult guardResult) implements FirstTurnOutcome {}
+        record Blocked(GuardOutcome outcome) implements FirstTurnOutcome {}
         record Committed(ChatResponse response, Duration elapsed,
                          Map<String, SpeculativeOutcome> speculatives) implements FirstTurnOutcome {}
     }

@@ -4,8 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.kite.Agent;
 import io.kite.ConversationStore;
-import io.kite.Guard;
-import io.kite.GuardResult;
+import io.kite.guards.GuardOutcome;
+import io.kite.guards.InputGuardInput;
+import io.kite.guards.OutputGuardInput;
 import io.kite.Reply;
 import io.kite.RunInterruptedException;
 import io.kite.Tool;
@@ -257,8 +258,9 @@ public final class RunnerCore {
         ObjectNode payload = codec().mapper().createObjectNode();
         switch (reply.status()) {
             case BLOCKED -> {
+                var blocker = reply.guards().blocking();
                 payload.put("blocked", true);
-                payload.put("guard", reply.guardResult() == null ? "" : reply.guardResult().guard());
+                payload.put("guard", blocker == null ? "" : blocker.name());
                 payload.put("message", reply.blockReason() == null ? "" : reply.blockReason());
             }
             case MAX_TURNS -> {
@@ -294,14 +296,16 @@ public final class RunnerCore {
         return null;
     }
 
-    public <T> GuardResult runInputBlocking(Agent<T> agent, T ctx, String input, TraceContext tctx) {
-        return guardExecutor.runBlocking(agent.inputGuards(), ctx, input,
-                (g, r) -> emitGuardCheck(tctx, agent.name(), g, r));
+    public <T> List<GuardOutcome> runInputBlocking(Agent<T> agent, T ctx, List<Message> history,
+                                                   TraceContext tctx, java.util.function.Consumer<GuardOutcome> sink) {
+        var input = new InputGuardInput<>(history, ctx);
+        return guardExecutor.runBlocking(agent.inputGuards(), input, tracingObserver(tctx, agent.name(), sink));
     }
 
-    public <T> ParallelGuardHandle startInputParallel(Agent<T> agent, T ctx, String input, TraceContext tctx) {
-        return guardExecutor.startParallel(agent.inputGuards(), ctx, input,
-                (g, r) -> emitGuardCheck(tctx, agent.name(), g, r));
+    public <T> ParallelGuardHandle startInputParallel(Agent<T> agent, T ctx, List<Message> history,
+                                                      TraceContext tctx, java.util.function.Consumer<GuardOutcome> sink) {
+        var input = new InputGuardInput<>(history, ctx);
+        return guardExecutor.startParallel(agent.inputGuards(), input, tracingObserver(tctx, agent.name(), sink));
     }
 
     /** Shared virtual-thread executor — {@link Runner} uses it to submit the first-turn LLM call
@@ -310,19 +314,19 @@ public final class RunnerCore {
         return vexec;
     }
 
-    public <T> GuardResult runOutput(Agent<T> agent, T ctx, String output, TraceContext tctx) {
-        return guardExecutor.runAfter(agent.outputGuards(), ctx, output,
-                (g, r) -> emitGuardCheck(tctx, agent.name(), g, r));
+    public <T> List<GuardOutcome> runOutput(Agent<T> agent, T ctx, List<Message> history,
+                                            String generatedResponse, TraceContext tctx,
+                                            java.util.function.Consumer<GuardOutcome> sink) {
+        var input = new OutputGuardInput<>(history, generatedResponse, ctx);
+        return guardExecutor.runAfter(agent.outputGuards(), input, tracingObserver(tctx, agent.name(), sink));
     }
 
-    private void emitGuardCheck(TraceContext tctx, String agentName, Guard<?> g, GuardResult r) {
-        trace(tctx, new TraceEvent.GuardCheck(
-                Instant.now(),
-                agentName,
-                g.name(),
-                g.phase().name(),
-                r.passing(),
-                r.message()));
+    private java.util.function.Consumer<GuardOutcome> tracingObserver(TraceContext tctx, String agentName,
+                                                                      java.util.function.Consumer<GuardOutcome> sink) {
+        return o -> {
+            trace(tctx, new TraceEvent.GuardCheck(Instant.now(), agentName, o));
+            sink.accept(o);
+        };
     }
 
     public TraceContext startTrace(Agent<?> rootAgent, String conversationId) {

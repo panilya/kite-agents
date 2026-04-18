@@ -1,6 +1,7 @@
 package io.kite;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.kite.guards.GuardResults;
 import io.kite.internal.json.JsonCodec;
 import io.kite.model.Usage;
 
@@ -15,7 +16,7 @@ public record Reply(
         String text,
         AgentRef agent,
         JsonNode structuredOutput,
-        GuardResult guardResult,
+        GuardResults guards,
         Usage usage,
         String traceId,
         List<Event> events) {
@@ -23,6 +24,7 @@ public record Reply(
     public Reply {
         events = events == null ? List.of() : List.copyOf(events);
         usage = usage == null ? Usage.ZERO : usage;
+        guards = guards == null ? GuardResults.empty() : guards;
     }
 
     public boolean blocked() {
@@ -30,7 +32,7 @@ public record Reply(
     }
 
     public String blockReason() {
-        return guardResult == null ? null : guardResult.message();
+        return guards.blockReason();
     }
 
     public <T> T output(Class<T> type) {
@@ -39,15 +41,17 @@ public record Reply(
     }
 
     // Factory helpers used by the runtime.
-    public static Reply ok(String text, AgentRef agent, JsonNode structured, Usage usage, String traceId, List<Event> events) {
-        return new Reply(Status.OK, text, agent, structured, null, usage, traceId, events);
+    public static Reply ok(String text, AgentRef agent, JsonNode structured, GuardResults guards,
+                           Usage usage, String traceId, List<Event> events) {
+        return new Reply(Status.OK, text, agent, structured, guards, usage, traceId, events);
     }
 
-    public static Reply blocked(GuardResult guard, AgentRef agent, Usage usage, String traceId, List<Event> events) {
-        return new Reply(Status.BLOCKED, guard.message(), agent, null, guard, usage, traceId, events);
+    public static Reply blocked(GuardResults guards, AgentRef agent, Usage usage, String traceId, List<Event> events) {
+        return new Reply(Status.BLOCKED, guards.blockReason(), agent, null, guards, usage, traceId, events);
     }
 
-    public static Reply maxTurns(String lastText, AgentRef agent, Usage usage, String traceId, List<Event> events) {
-        return new Reply(Status.MAX_TURNS, lastText, agent, null, null, usage, traceId, events);
+    public static Reply maxTurns(String lastText, AgentRef agent, GuardResults guards, Usage usage,
+                                 String traceId, List<Event> events) {
+        return new Reply(Status.MAX_TURNS, lastText, agent, null, guards, usage, traceId, events);
     }
 }

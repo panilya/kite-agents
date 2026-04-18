@@ -1,5 +1,8 @@
 package io.kite;
 
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
+import io.kite.guards.GuardPhase;
 import io.kite.internal.runtime.MockModelProvider;
 import io.kite.model.ChatChunk;
 import io.kite.model.Usage;
@@ -13,28 +16,23 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class GuardsTest {
 
     @Test
-    void parallelGuardsShortCircuitOnFirstBlock() throws InterruptedException {
-        // A fast guard blocks at ~10ms; a slow guard would otherwise wait ~5s. We assert that
-        // the run returns much sooner than 5s — proving the short-circuit on first block.
+    void parallelGuardsShortCircuitOnFirstBlock() {
         var slowFinished = new AtomicBoolean(false);
-        var slow = Guard.input("slow").parallel().check((ctx, in) -> {
+        var slow = Guard.input("slow").parallel().check(in -> {
             try { Thread.sleep(5_000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             slowFinished.set(true);
-            return Guard.pass();
+            return GuardDecision.allow();
         });
-        var fastBlock = Guard.input("fast-block").parallel().check((ctx, in) -> {
+        var fastBlock = Guard.input("fast-block").parallel().check(in -> {
             try { Thread.sleep(10); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            return Guard.block("nope");
+            return GuardDecision.block("nope");
         });
 
         var mock = MockModelProvider.builder().build();
@@ -60,8 +58,8 @@ class GuardsTest {
                 .respondText("contains badword in here")
                 .build();
         var kite = Kite.builder().provider(mock).tracing(io.kite.tracing.Tracing.off()).build();
-        var profanityGuard = Guard.output("no-profanity").check((ctx, out) ->
-                out.contains("badword") ? Guard.block("filtered") : Guard.pass());
+        var profanityGuard = Guard.output("no-profanity").check(in ->
+                in.generatedResponse().contains("badword") ? GuardDecision.block("filtered") : GuardDecision.allow());
         var agent = Agent.builder().model("gpt-test")
                 .outputGuards(List.of(profanityGuard))
                 .build();
@@ -74,10 +72,6 @@ class GuardsTest {
 
     @Test
     void parallelGuardTraceEventsEmittedBeforeRunReturns() {
-        // Regression for the observer-ordering race: `allOf` used to wait on the supplier
-        // futures only, not on the thenAccept stages that called the observer. A slow observer
-        // exposes the gap — with the old code, kite.run returns while the GuardCheck events
-        // are still in flight and `captured` is missing entries.
         var captured = new CopyOnWriteArrayList<TraceEvent>();
         TracingProvider slowCapturer = new TracingProvider() {
             @Override public void onEvent(TraceContext ctx, TraceEvent event) {
@@ -90,15 +84,15 @@ class GuardsTest {
         var mock = MockModelProvider.builder().respondText("ok").build();
         var kite = Kite.builder().provider(mock).tracing(slowCapturer).build();
 
-        var a = Guard.input("a").parallel().check((ctx, in) -> Guard.pass());
-        var b = Guard.input("b").parallel().check((ctx, in) -> Guard.pass());
+        var a = Guard.input("a").parallel().check(in -> GuardDecision.allow());
+        var b = Guard.input("b").parallel().check(in -> GuardDecision.allow());
         var agent = Agent.builder().model("gpt-test").inputGuards(List.of(a, b)).build();
 
         kite.run(agent, "hi");
 
         var names = captured.stream()
                 .filter(e -> e instanceof TraceEvent.GuardCheck)
-                .map(e -> ((TraceEvent.GuardCheck) e).guard())
+                .map(e -> ((TraceEvent.GuardCheck) e).outcome().name())
                 .toList();
         assertThat(names).containsExactlyInAnyOrder("a", "b");
         kite.close();
@@ -106,11 +100,9 @@ class GuardsTest {
 
     @Test
     void parallelGuardRacesLlm() {
-        // Both guard and LLM take 400ms. If they truly race on the virtual-thread executor the
-        // wall-clock is ~400ms; if they still run serially it would be ~800ms.
-        var slowPass = Guard.input("slow-pass").parallel().check((ctx, in) -> {
+        var slowPass = Guard.input("slow-pass").parallel().check(in -> {
             sleepQuiet(400);
-            return Guard.pass();
+            return GuardDecision.allow();
         });
         var mock = MockModelProvider.builder()
                 .withLatency(Duration.ofMillis(400))
@@ -130,11 +122,9 @@ class GuardsTest {
 
     @Test
     void parallelGuardBlockDuringLlmInFlight() {
-        // LLM would take 2s; guard blocks at ~50ms. Run should return BLOCKED well under 500ms,
-        // and the LLM response must never be committed — no LlmResponse trace event, usage ZERO.
-        var fastBlock = Guard.input("fast-block").parallel().check((ctx, in) -> {
+        var fastBlock = Guard.input("fast-block").parallel().check(in -> {
             sleepQuiet(50);
-            return Guard.block("too scary");
+            return GuardDecision.block("too scary");
         });
         var mock = MockModelProvider.builder()
                 .withLatency(Duration.ofSeconds(2))
@@ -161,11 +151,9 @@ class GuardsTest {
 
     @Test
     void parallelGuardLlmFasterThanGuard() {
-        // LLM is instant; guard takes 300ms. Wall-clock should be ≈ max(guard, llm) = 300ms,
-        // not llm+guard. We must NOT reveal the LLM response until the guard resolves.
-        var slowPass = Guard.input("slow-pass").parallel().check((ctx, in) -> {
+        var slowPass = Guard.input("slow-pass").parallel().check(in -> {
             sleepQuiet(300);
-            return Guard.pass();
+            return GuardDecision.allow();
         });
         var mock = MockModelProvider.builder().respondText("fast").build();
         var kite = Kite.builder().provider(mock).tracing(io.kite.tracing.Tracing.off()).build();
@@ -184,17 +172,14 @@ class GuardsTest {
 
     @Test
     void parallelGuardLlmFasterThanGuardThatBlocks() {
-        // LLM returns tool calls instantly; guard blocks at 200ms. Even though the LLM "won"
-        // the race, the guard's late block must still discard the response and prevent tool
-        // execution entirely.
         var toolRan = new AtomicBoolean(false);
         var neverShouldRun = Tool.create("should_not_run")
                 .description("side effect")
                 .execute(args -> { toolRan.set(true); return "ran"; })
                 .build();
-        var slowBlock = Guard.input("slow-block").parallel().check((ctx, in) -> {
+        var slowBlock = Guard.input("slow-block").parallel().check(in -> {
             sleepQuiet(200);
-            return Guard.block("late-block");
+            return GuardDecision.block("late-block");
         });
         var mock = MockModelProvider.builder()
                 .respondToolCall("call-1", "should_not_run", "{}")
@@ -221,11 +206,9 @@ class GuardsTest {
 
     @Test
     void streamingBufferHoldsDeltasUntilGuardResolves() {
-        // With a BUFFER-mode parallel guard that blocks, downstream must not see any Delta
-        // events — only Blocked and Done.
         var blockingGuard = Guard.input("buf-block").parallel()
                 .streamBehavior(StreamBehavior.BUFFER)
-                .check((ctx, in) -> { sleepQuiet(100); return Guard.block("nope"); });
+                .check(in -> { sleepQuiet(100); return GuardDecision.block("nope"); });
         List<ChatChunk> chunks = new ArrayList<>();
         chunks.add(new ChatChunk.TextDelta("hello "));
         chunks.add(new ChatChunk.TextDelta("world"));
@@ -238,17 +221,16 @@ class GuardsTest {
         kite.stream(agent, "hi", events::add);
 
         assertThat(events).noneMatch(e -> e instanceof Event.Delta);
-        assertThat(events).anyMatch(e -> e instanceof Event.Blocked);
+        assertThat(events).anyMatch(e -> e instanceof Event.GuardCheck g && g.outcome().blocked());
         assertThat(events).anyMatch(e -> e instanceof Event.Done);
         kite.close();
     }
 
     @Test
     void streamingBufferFlushesOnPass() {
-        // All-pass BUFFER guards: downstream eventually sees the held Delta events.
         var passGuard = Guard.input("buf-pass").parallel()
                 .streamBehavior(StreamBehavior.BUFFER)
-                .check((ctx, in) -> { sleepQuiet(50); return Guard.pass(); });
+                .check(in -> { sleepQuiet(50); return GuardDecision.allow(); });
         List<ChatChunk> chunks = new ArrayList<>();
         chunks.add(new ChatChunk.TextDelta("abc"));
         chunks.add(new ChatChunk.Done(Usage.ZERO, "stop"));
@@ -265,13 +247,89 @@ class GuardsTest {
     }
 
     @Test
+    void streamingOutputGuardBlockHidesDeltas() {
+        var profanityGuard = Guard.output("no-profanity").check(in ->
+                in.generatedResponse().contains("badword") ? GuardDecision.block("filtered") : GuardDecision.allow());
+        var mock = MockModelProvider.builder().streamText("this is ", "a badword response").build();
+        var kite = Kite.builder().provider(mock).tracing(io.kite.tracing.Tracing.off()).build();
+        var agent = Agent.builder().model("gpt-test")
+                .outputGuards(List.of(profanityGuard))
+                .build();
+
+        List<Event> events = new CopyOnWriteArrayList<>();
+        kite.stream(agent, "hi", events::add);
+
+        assertThat(events).noneMatch(e -> e instanceof Event.Delta);
+        assertThat(events).anyMatch(e ->
+                e instanceof Event.GuardCheck g && g.outcome().blocked() && "filtered".equals(g.outcome().message()));
+        assertThat(events).anyMatch(e -> e instanceof Event.Done);
+        kite.close();
+    }
+
+    @Test
+    void streamingOutputGuardPassFlushesDeltas() {
+        var passGuard = Guard.output("ok").check(in -> GuardDecision.allow());
+        var mock = MockModelProvider.builder().streamText("hello ", "world").build();
+        var kite = Kite.builder().provider(mock).tracing(io.kite.tracing.Tracing.off()).build();
+        var agent = Agent.builder().model("gpt-test")
+                .outputGuards(List.of(passGuard))
+                .build();
+
+        List<Event> events = new CopyOnWriteArrayList<>();
+        kite.stream(agent, "hi", events::add);
+
+        var deltas = events.stream()
+                .filter(e -> e instanceof Event.Delta)
+                .map(e -> ((Event.Delta) e).text())
+                .toList();
+        assertThat(deltas).containsExactly("hello ", "world");
+        assertThat(events).anyMatch(e -> e instanceof Event.Done);
+        kite.close();
+    }
+
+    @Test
+    void streamingOutputGuardOnlyGatesFinalTurn() {
+        var badWordGuard = Guard.output("no-bad").check(in ->
+                in.generatedResponse().contains("badword") ? GuardDecision.block("filtered") : GuardDecision.allow());
+        var echo = Tool.create("echo")
+                .description("echo")
+                .execute(args -> "ok")
+                .build();
+        List<ChatChunk> turn1 = new ArrayList<>();
+        turn1.add(new ChatChunk.TextDelta("thinking... "));
+        turn1.add(new ChatChunk.ToolCallComplete(0, "call-1", "echo", "{}"));
+        turn1.add(new ChatChunk.Done(Usage.ZERO, "tool_calls"));
+        List<ChatChunk> turn2 = new ArrayList<>();
+        turn2.add(new ChatChunk.TextDelta("here's a badword"));
+        turn2.add(new ChatChunk.Done(Usage.ZERO, "stop"));
+        var mock = MockModelProvider.builder()
+                .stream(turn1)
+                .stream(turn2)
+                .build();
+        var kite = Kite.builder().provider(mock).tracing(io.kite.tracing.Tracing.off()).build();
+        var agent = Agent.builder().model("gpt-test")
+                .tool(echo)
+                .outputGuards(List.of(badWordGuard))
+                .build();
+
+        List<Event> events = new CopyOnWriteArrayList<>();
+        kite.stream(agent, "hi", events::add);
+
+        var deltaTexts = events.stream()
+                .filter(e -> e instanceof Event.Delta)
+                .map(e -> ((Event.Delta) e).text())
+                .toList();
+        assertThat(deltaTexts).containsExactly("thinking... ");
+        assertThat(events).anyMatch(e ->
+                e instanceof Event.GuardCheck g && g.outcome().blocked() && "filtered".equals(g.outcome().message()));
+        kite.close();
+    }
+
+    @Test
     void streamingPassthroughGatesAfterBlock() {
-        // PASSTHROUGH: deltas that arrive before the block may reach downstream, but once the
-        // guard blocks, no further events leak. Here the guard blocks very quickly (10ms) while
-        // the stream pauses 200ms before first delta, so no delta should be visible.
         var passthroughBlock = Guard.input("pt-block").parallel()
                 .streamBehavior(StreamBehavior.PASSTHROUGH)
-                .check((ctx, in) -> { sleepQuiet(10); return Guard.block("nope"); });
+                .check(in -> { sleepQuiet(10); return GuardDecision.block("nope"); });
         List<ChatChunk> chunks = new ArrayList<>();
         chunks.add(new ChatChunk.TextDelta("late"));
         chunks.add(new ChatChunk.Done(Usage.ZERO, "stop"));
@@ -286,24 +344,19 @@ class GuardsTest {
         kite.stream(agent, "hi", events::add);
 
         assertThat(events).noneMatch(e -> e instanceof Event.Delta);
-        assertThat(events).anyMatch(e -> e instanceof Event.Blocked);
+        assertThat(events).anyMatch(e -> e instanceof Event.GuardCheck g && g.outcome().blocked());
         kite.close();
     }
 
     @Test
     void cancelledGuardsDoNotLeakTraceEventsAfterRunReturns() {
-        // Regression: before the cancelAll() fix, a slow parallel guard from run N would emit
-        // its GuardCheck trace event AFTER the run returned — polluting run N+1's trace. The
-        // fix cancels the observer stage so the event never fires. Here we run once with a
-        // fast-block + a slow-pass, then wait long enough for the slow guard's underlying
-        // supplier to finish, and assert no extra GuardCheck event arrived.
-        var fastBlock = Guard.input("fast-block").parallel().check((ctx, in) -> {
+        var fastBlock = Guard.input("fast-block").parallel().check(in -> {
             sleepQuiet(10);
-            return Guard.block("nope");
+            return GuardDecision.block("nope");
         });
-        var slowPass = Guard.input("slow-pass").parallel().check((ctx, in) -> {
+        var slowPass = Guard.input("slow-pass").parallel().check(in -> {
             sleepQuiet(300);
-            return Guard.pass();
+            return GuardDecision.allow();
         });
         var captured = new CopyOnWriteArrayList<TraceEvent>();
         TracingProvider capturer = new TracingProvider() {
@@ -318,12 +371,11 @@ class GuardsTest {
         Reply reply = kite.run(agent, "hi");
         assertThat(reply.status()).isEqualTo(Status.BLOCKED);
 
-        // Wait past slow-pass's 300ms sleep — its observer must not fire.
         sleepQuiet(500);
 
         var guardNames = captured.stream()
                 .filter(e -> e instanceof TraceEvent.GuardCheck)
-                .map(e -> ((TraceEvent.GuardCheck) e).guard())
+                .map(e -> ((TraceEvent.GuardCheck) e).outcome().name())
                 .toList();
         assertThat(guardNames).containsExactly("fast-block");
         kite.close();
@@ -342,8 +394,8 @@ class GuardsTest {
         var mock = MockModelProvider.builder().respondText("ok").build();
         var kite = Kite.builder().provider(mock).tracing(capturer).build();
 
-        var pass1 = Guard.input("pass1").blocking().check((ctx, in) -> Guard.pass());
-        var pass2 = Guard.input("pass2").blocking().check((ctx, in) -> Guard.pass());
+        var pass1 = Guard.input("pass1").blocking().check(in -> GuardDecision.allow());
+        var pass2 = Guard.input("pass2").blocking().check(in -> GuardDecision.allow());
         var agent = Agent.builder().model("gpt-test").inputGuards(List.of(pass1, pass2)).build();
 
         kite.run(agent, "hi");
@@ -353,10 +405,10 @@ class GuardsTest {
                 .map(e -> (TraceEvent.GuardCheck) e)
                 .toList();
         assertThat(guardChecks).hasSize(2);
-        assertThat(guardChecks.get(0).guard()).isEqualTo("pass1");
-        assertThat(guardChecks.get(0).passed()).isTrue();
-        assertThat(guardChecks.get(0).phase()).isEqualTo("INPUT");
-        assertThat(guardChecks.get(1).guard()).isEqualTo("pass2");
+        assertThat(guardChecks.get(0).outcome().name()).isEqualTo("pass1");
+        assertThat(guardChecks.get(0).outcome().blocked()).isFalse();
+        assertThat(guardChecks.get(0).outcome().phase()).isEqualTo(GuardPhase.INPUT);
+        assertThat(guardChecks.get(1).outcome().name()).isEqualTo("pass2");
         kite.close();
     }
 }

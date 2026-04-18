@@ -1,5 +1,7 @@
 package io.kite;
 
+import io.kite.guards.InputGuard;
+import io.kite.guards.OutputGuard;
 import io.kite.internal.runtime.RunnerCore;
 import io.kite.internal.runtime.ToolInvokerFactory;
 import io.kite.schema.JsonSchemaGenerator;
@@ -27,8 +29,8 @@ public final class AgentBuilder<T> {
     private final List<Tool> tools = new ArrayList<>();
     private final List<Agent<T>> routes = new ArrayList<>();
     private Function<T, List<Agent<T>>> dynamicRoutes;
-    private final List<Guard<T>> inputGuards = new ArrayList<>();
-    private final List<Guard<T>> outputGuards = new ArrayList<>();
+    private final List<InputGuard<T>> inputGuards = new ArrayList<>();
+    private final List<OutputGuard<T>> outputGuards = new ArrayList<>();
     private Class<? extends Record> outputType;
     private SchemaNode outputSchema;
     private Double temperature;
@@ -95,9 +97,20 @@ public final class AgentBuilder<T> {
     /**
      * Replace the current input-phase guards. Input guards run before the first LLM call and can
      * block the run early. Pass an empty list to clear.
+     *
+     * <p>Variance widening ({@code ? extends InputGuard<? super T>}) lets guards with looser
+     * context types ({@code InputGuard<Object>}, untyped {@code var}-assigned) fit into agents
+     * with stricter contexts.
      */
-    public AgentBuilder<T> inputGuards(List<Guard<T>> guards) {
-        replaceGuards(this.inputGuards, guards);
+    public AgentBuilder<T> inputGuards(List<? extends InputGuard<? super T>> guards) {
+        Objects.requireNonNull(guards, "guards");
+        this.inputGuards.clear();
+        for (var g : guards) {
+            Objects.requireNonNull(g, "guard");
+            @SuppressWarnings("unchecked")
+            var typed = (InputGuard<T>) g;
+            this.inputGuards.add(typed);
+        }
         return this;
     }
 
@@ -105,15 +118,16 @@ public final class AgentBuilder<T> {
      * Replace the current output-phase guards. Output guards run on the model's final text and
      * can block the reply. Pass an empty list to clear.
      */
-    public AgentBuilder<T> outputGuards(List<Guard<T>> guards) {
-        replaceGuards(this.outputGuards, guards);
+    public AgentBuilder<T> outputGuards(List<? extends OutputGuard<? super T>> guards) {
+        Objects.requireNonNull(guards, "guards");
+        this.outputGuards.clear();
+        for (var g : guards) {
+            Objects.requireNonNull(g, "guard");
+            @SuppressWarnings("unchecked")
+            var typed = (OutputGuard<T>) g;
+            this.outputGuards.add(typed);
+        }
         return this;
-    }
-
-    private static <G> void replaceGuards(List<G> target, List<G> source) {
-        Objects.requireNonNull(source, "guards");
-        target.clear();
-        for (G g : source) target.add(Objects.requireNonNull(g, "guard"));
     }
 
     public AgentBuilder<T> output(Class<? extends Record> type) {

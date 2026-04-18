@@ -1,7 +1,8 @@
 package io.kite.samples.guards;
 
 import io.kite.Agent;
-import io.kite.Guard;
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
 import io.kite.Kite;
 import io.kite.Status;
 import io.kite.annotations.Description;
@@ -52,11 +53,12 @@ public final class LlmGuardAgent {
 
             var llmGuard = Guard.input("llm-moderator")
                     .parallel()
-                    .check(input -> {
-                        Verdict v = kite.run(moderator, input).output(Verdict.class);
+                    .check(in -> {
+                        var text = in.userText();
+                        Verdict v = kite.run(moderator, text).output(Verdict.class);
                         return v.safe()
-                                ? Guard.pass()
-                                : Guard.block("Moderator flagged input: " + v.reason());
+                                ? GuardDecision.allow()
+                                : GuardDecision.block("Moderator flagged input: " + v.reason());
                     });
 
             var assistant = Agent.builder()

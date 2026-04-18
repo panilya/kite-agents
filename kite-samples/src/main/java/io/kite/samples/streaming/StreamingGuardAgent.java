@@ -2,7 +2,9 @@ package io.kite.samples.streaming;
 
 import io.kite.Agent;
 import io.kite.Event;
-import io.kite.Guard;
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
+import io.kite.guards.InputGuard;
 import io.kite.Kite;
 import io.kite.StreamBehavior;
 import io.kite.openai.OpenAiProvider;
@@ -59,10 +61,10 @@ public final class StreamingGuardAgent {
     }
 
     private static Agent<Void> buildAgent(StreamBehavior behavior, String label) {
-        Guard<Void> slowPolicy = Guard.input("slow-policy")
+        InputGuard<Void> slowPolicy = Guard.<Void>input("slow-policy")
                 .parallel()
                 .streamBehavior(behavior)
-                .check(input -> { sleepQuiet(GUARD_LATENCY); return Guard.pass(); });
+                .check(in -> { sleepQuiet(GUARD_LATENCY); return GuardDecision.allow(); });
 
         return Agent.builder()
                 .model("gpt-4o-mini")
@@ -79,7 +81,12 @@ public final class StreamingGuardAgent {
             long ms = Duration.between(start, Instant.now()).toMillis();
             switch (event) {
                 case Event.Delta d -> System.out.printf("[+%4dms delta]  %s%n", ms, d.text().replace("\n", " "));
-                case Event.Blocked b -> System.out.printf("[+%4dms BLOCKED] guard=%s %s%n", ms, b.guard(), b.message());
+                case Event.GuardCheck gc -> {
+                    if (gc.outcome().blocked()) {
+                        System.out.printf("[+%4dms BLOCKED] guard=%s %s%n",
+                                ms, gc.outcome().name(), gc.outcome().message());
+                    }
+                }
                 case Event.Done done -> System.out.printf("[+%4dms done]   status=%s%n", ms, done.reply().status());
                 default -> { /* ignored for this demo */ }
             }

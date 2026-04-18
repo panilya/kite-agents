@@ -51,9 +51,12 @@ public final class ConsoleTracingProvider implements TracingProvider {
             case TraceEvent.ToolResult r -> out.printf("[kite %s]   tool %s → %s  %s%n",
                     time(), r.toolName(), truncate(r.resultJson(), 80), fmt(r.elapsed()));
             case TraceEvent.Transfer t -> out.printf("[kite %s]   transfer → %s%n", time(), t.to());
-            case TraceEvent.GuardCheck g -> out.printf("[kite %s]   guard %s %s%s%n",
-                    time(), g.guard(), g.passed() ? "PASS" : "BLOCK",
-                    g.passed() || g.message() == null ? "" : " (" + g.message() + ")");
+            case TraceEvent.GuardCheck g -> {
+                var o = g.outcome();
+                out.printf("[kite %s]   guard %s %s%s%n",
+                        time(), o.name(), o.blocked() ? "BLOCK" : "PASS",
+                        o.blocked() && o.message() != null ? " (" + o.message() + ")" : "");
+            }
             case TraceEvent.Error e -> out.printf("[kite %s]   ERROR %s: %s%n",
                     time(), e.agent(), e.message());
         }

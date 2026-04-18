@@ -215,7 +215,11 @@ public final class DeepResearchAgent {
             switch (event) {
                 case Event.ToolCall tc -> progress.onToolCall(tc.name(), tc.argsJson());
                 case Event.ToolResult tr -> progress.onToolResult(tr.name(), tr.elapsed());
-                case Event.Blocked b -> System.out.println("[blocked by " + b.guard() + "] " + b.message());
+                case Event.GuardCheck gc -> {
+                    if (gc.outcome().blocked()) {
+                        System.out.println("[blocked by " + gc.outcome().name() + "] " + gc.outcome().message());
+                    }
+                }
                 case Event.Done d -> finalReply[0] = d.reply();
                 case Event.Error e -> System.err.println("[error] " + e.cause().getMessage());
                 default -> { /* ignore Delta + Transfer for this progress view */ }

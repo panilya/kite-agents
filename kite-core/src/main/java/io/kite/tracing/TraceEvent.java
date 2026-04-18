@@ -1,5 +1,6 @@
 package io.kite.tracing;
 
+import io.kite.guards.GuardOutcome;
 import io.kite.model.ChatRequest;
 import io.kite.model.ChatResponse;
 import io.kite.model.Usage;
@@ -29,7 +30,7 @@ public sealed interface TraceEvent
 
     record Transfer(Instant timestamp, String agent, String to) implements TraceEvent {}
 
-    record GuardCheck(Instant timestamp, String agent, String guard, String phase, boolean passed, String message) implements TraceEvent {}
+    record GuardCheck(Instant timestamp, String agent, GuardOutcome outcome) implements TraceEvent {}
 
     record Error(Instant timestamp, String agent, String message, Throwable cause) implements TraceEvent {}
 }

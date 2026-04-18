@@ -1,5 +1,7 @@
 package io.kite;
 
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
 import io.kite.internal.runtime.MockModelProvider;
 import io.kite.model.Message;
 import io.kite.tracing.TraceContext;
@@ -24,9 +26,9 @@ class SpeculativeToolsTest {
         // Slow guard (400ms) + instant LLM returning a read-only tool call + tool that sleeps
         // 200ms: with speculation the tool overlaps the guard wait, so total ≈ max(400, 200) =
         // ~400ms, not 400+200. The follow-up LLM turn is instant.
-        var slowPass = Guard.input("slow-pass").parallel().check((ctx, in) -> {
+        var slowPass = Guard.input("slow-pass").parallel().check(in -> {
             sleepQuiet(400);
-            return Guard.pass();
+            return GuardDecision.allow();
         });
         var readOnly = Tool.create("retrieve")
                 .description("RAG")
@@ -60,9 +62,9 @@ class SpeculativeToolsTest {
         // counter. The tool DOES run (to validate speculation is real), but its result must
         // never reach history or trace, and the Reply must be BLOCKED.
         var invocations = new AtomicInteger();
-        var slowBlock = Guard.input("slow-block").parallel().check((ctx, in) -> {
+        var slowBlock = Guard.input("slow-block").parallel().check(in -> {
             sleepQuiet(200);
-            return Guard.block("denied");
+            return GuardDecision.block("denied");
         });
         var readOnly = Tool.create("retrieve")
                 .description("RAG")
@@ -99,10 +101,10 @@ class SpeculativeToolsTest {
         // the tool is entered and the timestamp the guard completes; tool_start >= guard_end.
         var guardEnd = new AtomicLong();
         var toolStart = new AtomicLong();
-        var slowPass = Guard.input("slow-pass").parallel().check((ctx, in) -> {
+        var slowPass = Guard.input("slow-pass").parallel().check(in -> {
             sleepQuiet(300);
             guardEnd.set(System.nanoTime());
-            return Guard.pass();
+            return GuardDecision.allow();
         });
         var sideEffect = Tool.create("send")
                 .description("side effect")
@@ -131,9 +133,9 @@ class SpeculativeToolsTest {
         // LLM emits [A readOnly, B side-effect, C readOnly] in one batch. Regardless of which
         // speculative future finishes first, the Tool messages in history must appear in the
         // original LLM-emitted order A, B, C.
-        var passGuard = Guard.input("pass").parallel().check((ctx, in) -> {
+        var passGuard = Guard.input("pass").parallel().check(in -> {
             sleepQuiet(100);
-            return Guard.pass();
+            return GuardDecision.allow();
         });
         // A finishes last (slow), C finishes first (fast) — if we ordered by completion we'd
         // see C first, which is wrong.
@@ -180,7 +182,7 @@ class SpeculativeToolsTest {
     void readOnlyToolFailurePropagatedOnPass() {
         // Read-only tool throws — on guard pass, the error must appear in trace and history
         // just like a serially-executed tool failure would.
-        var passGuard = Guard.input("pass").parallel().check((ctx, in) -> Guard.pass());
+        var passGuard = Guard.input("pass").parallel().check(in -> GuardDecision.allow());
         var boom = Tool.create("boom").description("boom").readOnly(true)
                 .execute(args -> { throw new RuntimeException("kaboom"); })
                 .build();
@@ -218,7 +220,7 @@ class SpeculativeToolsTest {
     void speculativeToolTimeoutHonored() {
         // Read-only tool that sleeps past the configured toolTimeout. On guard pass, the
         // timeout must surface as a structured error in history, same as a serial tool.
-        var passGuard = Guard.input("pass").parallel().check((ctx, in) -> Guard.pass());
+        var passGuard = Guard.input("pass").parallel().check(in -> GuardDecision.allow());
         var slow = Tool.create("slow").description("slow").readOnly(true)
                 .execute(args -> { sleepQuiet(2000); return "late"; })
                 .build();

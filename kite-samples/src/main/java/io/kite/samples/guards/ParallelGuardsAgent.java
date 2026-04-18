@@ -1,7 +1,8 @@
 package io.kite.samples.guards;
 
 import io.kite.Agent;
-import io.kite.Guard;
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
 import io.kite.Kite;
 import io.kite.Status;
 import io.kite.openai.OpenAiProvider;
@@ -38,17 +39,21 @@ public final class ParallelGuardsAgent {
 
         var piiRegex = Guard.input("pii-regex")
                 .parallel()
-                .check(input -> SSN.matcher(input).find()
-                        ? Guard.block("Input contains an SSN-like pattern.")
-                        : Guard.pass());
+                .check(in -> {
+                    var text = in.userText();
+                    return SSN.matcher(text).find()
+                            ? GuardDecision.block("Input contains an SSN-like pattern.")
+                            : GuardDecision.allow();
+                });
 
         var slowPolicy = Guard.input("slow-policy-check")
                 .parallel()
-                .check(input -> {
+                .check(in -> {
                     try { Thread.sleep(400); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                    return input.toLowerCase().contains("banned-topic")
-                            ? Guard.block("Topic is on the policy blocklist.")
-                            : Guard.pass();
+                    var text = in.userText();
+                    return text.toLowerCase().contains("banned-topic")
+                            ? GuardDecision.block("Topic is on the policy blocklist.")
+                            : GuardDecision.allow();
                 });
 
         try (var kite = Kite.builder()

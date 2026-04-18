@@ -1,7 +1,8 @@
 package io.kite.samples.guards;
 
 import io.kite.Agent;
-import io.kite.Guard;
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
 import io.kite.Kite;
 import io.kite.Status;
 import io.kite.openai.OpenAiProvider;
@@ -30,14 +31,17 @@ public final class GuardedAgent {
 
         var noHacking = Guard.input("no-hacking")
                 .blocking()
-                .check(input -> input.toLowerCase().contains("hack")
-                        ? Guard.block("I can't help with hacking.")
-                        : Guard.pass());
+                .check(in -> {
+                    var text = in.userText();
+                    return text.toLowerCase().contains("hack")
+                            ? GuardDecision.block("I can't help with hacking.")
+                            : GuardDecision.allow();
+                });
 
         var noEmptyReply = Guard.output("no-empty-reply")
-                .check(output -> (output == null || output.isBlank())
-                        ? Guard.block("Model returned an empty response.")
-                        : Guard.pass());
+                .check(in -> (in.generatedResponse() == null || in.generatedResponse().isBlank())
+                        ? GuardDecision.block("Model returned an empty response.")
+                        : GuardDecision.allow());
 
         try (var kite = Kite.builder()
                 .provider(new OpenAiProvider(key))

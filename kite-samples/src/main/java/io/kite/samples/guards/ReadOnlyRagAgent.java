@@ -1,7 +1,9 @@
 package io.kite.samples.guards;
 
 import io.kite.Agent;
-import io.kite.Guard;
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
+import io.kite.guards.InputGuard;
 import io.kite.Kite;
 import io.kite.Status;
 import io.kite.Tool;
@@ -80,13 +82,14 @@ public final class ReadOnlyRagAgent {
                 })
                 .build();
 
-        Guard<Void> slowPolicy = Guard.input("slow-policy")
+        InputGuard<Void> slowPolicy = Guard.<Void>input("slow-policy")
                 .parallel()
-                .check(input -> {
+                .check(in -> {
                     sleepQuiet(GUARD_LATENCY);
-                    return input.toLowerCase().contains("secret-project")
-                            ? Guard.block("Topic is on the policy blocklist.")
-                            : Guard.pass();
+                    var text = in.userText();
+                    return text.toLowerCase().contains("secret-project")
+                            ? GuardDecision.block("Topic is on the policy blocklist.")
+                            : GuardDecision.allow();
                 });
 
         return Agent.builder()

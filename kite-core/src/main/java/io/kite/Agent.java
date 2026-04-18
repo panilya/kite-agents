@@ -1,5 +1,7 @@
 package io.kite;
 
+import io.kite.guards.InputGuard;
+import io.kite.guards.OutputGuard;
 import io.kite.internal.runtime.ToolInvoker;
 import io.kite.schema.SchemaNode;
 
@@ -26,8 +28,8 @@ public final class Agent<T> {
     final List<Tool> tools;
     final List<Agent<T>> routes;
     final Function<T, List<Agent<T>>> dynamicRoutes;
-    final List<Guard<T>> inputGuards;
-    final List<Guard<T>> outputGuards;
+    final List<InputGuard<T>> inputGuards;
+    final List<OutputGuard<T>> outputGuards;
     final Class<? extends Record> outputType;   // nullable
     final SchemaNode outputSchema;              // nullable; built from outputType at build time
     final Double temperature;
@@ -45,8 +47,8 @@ public final class Agent<T> {
           List<Tool> tools,
           List<Agent<T>> routes,
           Function<T, List<Agent<T>>> dynamicRoutes,
-          List<Guard<T>> inputGuards,
-          List<Guard<T>> outputGuards,
+          List<InputGuard<T>> inputGuards,
+          List<OutputGuard<T>> outputGuards,
           Class<? extends Record> outputType,
           SchemaNode outputSchema,
           Double temperature,
@@ -83,8 +85,8 @@ public final class Agent<T> {
     public List<Tool> tools() { return tools; }
     public List<Agent<T>> routes() { return routes; }
     public Function<T, List<Agent<T>>> dynamicRoutes() { return dynamicRoutes; }
-    public List<Guard<T>> inputGuards() { return inputGuards; }
-    public List<Guard<T>> outputGuards() { return outputGuards; }
+    public List<InputGuard<T>> inputGuards() { return inputGuards; }
+    public List<OutputGuard<T>> outputGuards() { return outputGuards; }
     public Double temperature() { return temperature; }
     public Integer maxTurns() { return maxTurns; }
     public ToolChoice toolChoice() { return toolChoice; }

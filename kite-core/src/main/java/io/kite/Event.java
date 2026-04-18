@@ -1,5 +1,7 @@
 package io.kite;
 
+import io.kite.guards.GuardOutcome;
+
 import java.time.Duration;
 
 /**
@@ -11,7 +13,7 @@ public sealed interface Event
                 Event.ToolCall,
                 Event.ToolResult,
                 Event.Transfer,
-                Event.Blocked,
+                Event.GuardCheck,
                 Event.Done,
                 Event.Error {
 
@@ -27,7 +29,12 @@ public sealed interface Event
         @Override public String agent() { return from; }
     }
 
-    record Blocked(String agent, String guard, String message) implements Event {}
+    /**
+     * Emitted for every guard check — pass or block. Carries the full {@link GuardOutcome},
+     * so consumers that only care about blocks filter with {@code outcome.blocked()}. Guard
+     * {@code info} (structured rationale) lives on {@code outcome.decision()}.
+     */
+    record GuardCheck(String agent, GuardOutcome outcome) implements Event {}
 
     record Done(String agent, Reply reply) implements Event {}
 

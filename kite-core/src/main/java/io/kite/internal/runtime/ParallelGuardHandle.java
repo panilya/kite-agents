@@ -1,6 +1,6 @@
 package io.kite.internal.runtime;
 
-import io.kite.GuardResult;
+import io.kite.guards.GuardOutcome;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -10,19 +10,19 @@ import java.util.concurrent.CompletableFuture;
  * virtual-thread executor. Lets {@link Runner} race the guards against the first-turn LLM call
  * and decide whether to commit or discard based on which finishes first.
  *
- * <p>{@link #firstBlock} completes only if some guard produces a block — never otherwise.
- * {@link #completion} always completes: with the first block if any, or a pass once every
- * guard has returned. {@link #anyBuffer} drives streaming mode (BUFFER vs PASSTHROUGH).
+ * <p>{@link #firstBlock} completes only if some guard produces a block. {@link #allOutcomes}
+ * completes once every guard has returned, carrying the full list of outcomes in completion
+ * order. {@link #anyBuffer} drives streaming mode (BUFFER vs PASSTHROUGH).
  */
 public record ParallelGuardHandle(
-        CompletableFuture<GuardResult> firstBlock,
-        CompletableFuture<GuardResult> completion,
+        CompletableFuture<GuardOutcome> firstBlock,
+        CompletableFuture<List<GuardOutcome>> allOutcomes,
         boolean anyBuffer,
-        List<CompletableFuture<GuardResult>> inflight) {
+        List<CompletableFuture<GuardOutcome>> inflight) {
 
     public static ParallelGuardHandle empty() {
-        var never = new CompletableFuture<GuardResult>();
-        var pass = CompletableFuture.completedFuture(GuardResult.pass());
+        var never = new CompletableFuture<GuardOutcome>();
+        var pass = CompletableFuture.completedFuture(List.<GuardOutcome>of());
         return new ParallelGuardHandle(never, pass, false, List.of());
     }
 

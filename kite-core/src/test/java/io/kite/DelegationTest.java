@@ -3,6 +3,8 @@ package io.kite;
 import io.kite.annotations.Ctx;
 import io.kite.annotations.Tool;
 import io.kite.annotations.ToolParam;
+import io.kite.guards.Guard;
+import io.kite.guards.GuardDecision;
 import io.kite.internal.json.JsonCodec;
 import io.kite.internal.runtime.MockModelProvider;
 import io.kite.model.ChatChunk;
@@ -127,7 +129,7 @@ class DelegationTest {
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
         var blocker = Guard.input("no-free").blocking()
-                .check((ctx, input) -> Guard.block("please upgrade"));
+                .check(in -> GuardDecision.block("please upgrade"));
         var helper = Agent.builder().model("gpt-test").name("helper")
                 .inputGuards(List.of(blocker))
                 .build();
