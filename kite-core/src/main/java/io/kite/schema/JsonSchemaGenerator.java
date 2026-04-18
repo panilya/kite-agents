@@ -33,7 +33,9 @@ import java.util.stream.Collectors;
  *   <li>{@code java.time.{Instant, LocalDate, LocalDateTime, OffsetDateTime, ZonedDateTime}} → string/date-time</li>
  *   <li>Records (recursive — nested records become nested objects)</li>
  *   <li>{@code List<T>}, {@code Iterable<T>} → array</li>
- *   <li>{@code Optional<T>} → unwraps T and removes the field from {@code required}</li>
+ *   <li>{@code Optional<T>} as a <em>record field</em> → unwraps T and removes the field from {@code required}.
+ *       {@code Optional<T>} is <em>not</em> accepted as a tool-method parameter type — use
+ *       {@code @ToolParam(required = false)} on a plain-typed parameter instead.</li>
  * </ul>
  *
  * <p>Results are cached by {@link Class} forever. Callers must not mutate returned nodes.
@@ -123,10 +125,17 @@ public final class JsonSchemaGenerator {
             var desc = p.getAnnotation(Description.class);
             String name = (tp != null && !tp.name().isEmpty()) ? tp.name() : p.getName();
             String description = resolveDescription(tp, desc);
-            var u = unwrap(p.getParameterizedType());
+            Type paramType = p.getParameterizedType();
+            if (paramType instanceof ParameterizedType pt && pt.getRawType() == Optional.class) {
+                throw new IllegalArgumentException(
+                        "Optional<T> is not supported as a tool parameter type on "
+                                + method.getDeclaringClass().getSimpleName() + "." + method.getName()
+                                + "(... " + name + "). Declare a plain-typed parameter with "
+                                + "@ToolParam(required = false) and check for null.");
+            }
             boolean explicitlyOptional = tp != null && !tp.required();
-            props.put(name, withDescription(build(u.type(), inFlight), description));
-            if (!u.wasOptional() && !explicitlyOptional) required.add(name);
+            props.put(name, withDescription(build(paramType, inFlight), description));
+            if (!explicitlyOptional) required.add(name);
         }
         return new SchemaNode.Obj(props, required, null, true);
     }
@@ -180,10 +189,6 @@ public final class JsonSchemaGenerator {
         }
         if (Iterable.class.isAssignableFrom(rc)) {
             return new SchemaNode.Arr(build(pt.getActualTypeArguments()[0], inFlight), null);
-        }
-        if (rc == Optional.class) {
-            // Shouldn't normally happen because the caller unwraps Optional first, but be defensive.
-            return build(pt.getActualTypeArguments()[0], inFlight);
         }
         throw new IllegalArgumentException("Unsupported parameterized schema type: " + pt);
     }

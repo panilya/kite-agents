@@ -3,10 +3,13 @@ package io.kite.schema;
 import io.kite.annotations.Description;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JsonSchemaGeneratorTest {
 
@@ -81,5 +84,19 @@ class JsonSchemaGeneratorTest {
         SchemaNode first = JsonSchemaGenerator.forRecord(Simple.class);
         SchemaNode second = JsonSchemaGenerator.forRecord(Simple.class);
         assertThat(first).isSameAs(second);
+    }
+
+    @SuppressWarnings("unused")
+    static class WithOptionalParam {
+        public void search(String query, Optional<Integer> limit) {}
+    }
+
+    @Test
+    void optionalOnToolParameterIsRejected() throws Exception {
+        Method m = WithOptionalParam.class.getDeclaredMethod("search", String.class, Optional.class);
+        assertThatThrownBy(() -> JsonSchemaGenerator.forMethodParameters(m, Set.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Optional<T> is not supported as a tool parameter")
+                .hasMessageContaining("@ToolParam(required = false)");
     }
 }
