@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>kite-agents chatbot</title>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>kite-agents chatbot</h1>
+    <span class="subtitle">streaming · tools · guards</span>
+  </header>
+
+  <main id="chat" aria-live="polite"></main>
+
+  <div id="banner" class="banner hidden" role="alert"></div>
+
+  <form id="composer">
+    <textarea id="input"
+              placeholder="Ask me something. Try: 'what's my display name?' or 'time in Europe/Warsaw?'"
+              rows="2"
+              autofocus></textarea>
+    <button type="submit" id="send">Send</button>
+  </form>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
