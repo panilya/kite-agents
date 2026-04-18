@@ -83,7 +83,7 @@ public final class ToolBuilder {
         SchemaNode schema = buildSchema();
         boolean usesContext = ctxFn != null;
         var invoker = new ToolInvokerImpl(name, params, noCtxFn, ctxFn);
-        return new Tool(name, description, schema, invoker, usesContext, Tool.Kind.FUNCTION, null, null, readOnly);
+        return Tool.function(name, description, schema, invoker, usesContext, readOnly);
     }
 
     private SchemaNode buildSchema() {

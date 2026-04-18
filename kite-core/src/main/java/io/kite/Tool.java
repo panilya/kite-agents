@@ -9,12 +9,13 @@ import java.util.function.Function;
 /**
  * A single callable tool exposed to the LLM. Instances are immutable and created either by
  * scanning {@code @Tool}-annotated methods via {@link AgentBuilder#tools(Object)} or by the
- * programmatic {@link #create(String)} builder.
- *
- * <p>Tools are also used for routing: {@link Agent#asTool(String)} wraps an agent as a tool,
- * and Kite auto-generates synthetic tools for {@code .route(otherAgent)} calls.
+ * programmatic {@link #create(String)} builder. {@link Agent#asTool(String)} wraps an agent
+ * as a delegate tool.
  */
 public final class Tool {
+
+    public static final String EMPTY_PARAMS_SCHEMA_JSON =
+            "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}";
 
     private final String name;
     private final String description;
@@ -23,47 +24,59 @@ public final class Tool {
     private final ToolInvoker invoker;
     private final boolean usesContext;
     private final Kind kind;
-    private final Agent<?> routeTarget;   // non-null when kind == ROUTE or kind == DELEGATE
+    private final Agent<?> delegateTarget;   // non-null when kind == DELEGATE
     private final Function<Reply, String> outputExtractor;   // non-null only for DELEGATE with custom extractor
     private final boolean readOnly;
 
-    public enum Kind { FUNCTION, ROUTE, DELEGATE }
+    public enum Kind { FUNCTION, DELEGATE }
 
-    /**
-     * Internal constructor. External users should use {@link #create(String)} or the
-     * {@code @Tool} annotation on a POJO method passed to {@code AgentBuilder.tools(bean)}.
-     * Runtime callers in {@code io.kite.internal.runtime} use {@link Tools#newFunctionTool}
-     * instead of invoking this directly.
-     *
-     * <p>{@code readOnly} declares that the tool has no externally-observable side effects.
-     * Kite may start it in parallel with any still-running input guards instead of waiting
-     * for them to finish, and will simply throw the result away if a guard blocks. Only
-     * meaningful for {@link Kind#FUNCTION}; {@link Kind#ROUTE} and {@link Kind#DELEGATE}
-     * always run after guards resolve and must pass {@code false}.
-     */
-    Tool(String name,
-         String description,
-         SchemaNode paramsSchema,
-         ToolInvoker invoker,
-         boolean usesContext,
-         Kind kind,
-         Agent<?> routeTarget,
-         Function<Reply, String> outputExtractor,
-         boolean readOnly) {
+    private Tool(String name,
+                 String description,
+                 SchemaNode paramsSchema,
+                 ToolInvoker invoker,
+                 boolean usesContext,
+                 Kind kind,
+                 Agent<?> delegateTarget,
+                 Function<Reply, String> outputExtractor,
+                 boolean readOnly) {
         this.name = Objects.requireNonNull(name, "name");
         this.description = description == null ? "" : description;
         this.paramsSchema = paramsSchema;
-        this.paramsSchemaJson = paramsSchema == null ? "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}" : paramsSchema.writeJson();
+        this.paramsSchemaJson = paramsSchema == null ? EMPTY_PARAMS_SCHEMA_JSON : paramsSchema.writeJson();
         this.invoker = Objects.requireNonNull(invoker, "invoker");
         this.usesContext = usesContext;
         this.kind = kind;
-        this.routeTarget = routeTarget;
+        this.delegateTarget = delegateTarget;
         this.outputExtractor = outputExtractor;
-        if (readOnly && kind != Kind.FUNCTION) {
-            throw new IllegalArgumentException(
-                    "Tool '" + name + "' kind=" + kind + " cannot be readOnly — only FUNCTION tools support speculative execution");
-        }
         this.readOnly = readOnly;
+    }
+
+    /**
+     * Build a plain function tool. {@code readOnly} declares the tool has no externally-observable
+     * side effects; Kite may start it in parallel with still-running input guards and discard the
+     * result if a guard blocks.
+     */
+    public static Tool function(String name,
+                                String description,
+                                SchemaNode paramsSchema,
+                                ToolInvoker invoker,
+                                boolean usesContext,
+                                boolean readOnly) {
+        return new Tool(name, description, paramsSchema, invoker, usesContext, Kind.FUNCTION, null, null, readOnly);
+    }
+
+    /**
+     * Build a delegate tool that hands the call off to a sub-agent. Delegation always runs after
+     * input guards resolve, so speculative execution ({@code readOnly}) does not apply.
+     */
+    public static Tool delegate(String name,
+                                String description,
+                                SchemaNode paramsSchema,
+                                ToolInvoker invoker,
+                                Agent<?> target,
+                                Function<Reply, String> outputExtractor) {
+        Objects.requireNonNull(target, "target");
+        return new Tool(name, description, paramsSchema, invoker, false, Kind.DELEGATE, target, outputExtractor, false);
     }
 
     public String name() { return name; }
@@ -72,7 +85,7 @@ public final class Tool {
     public String paramsSchemaJson() { return paramsSchemaJson; }
     public boolean usesContext() { return usesContext; }
     public Kind kind() { return kind; }
-    public Agent<?> routeTarget() { return routeTarget; }
+    public Agent<?> routeTarget() { return delegateTarget; }
     public Function<Reply, String> outputExtractor() { return outputExtractor; }
     public boolean readOnly() { return readOnly; }
 

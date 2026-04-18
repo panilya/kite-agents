@@ -16,7 +16,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SpeculativeToolsTest {
 
@@ -276,19 +275,6 @@ class SpeculativeToolsTest {
 
         @io.kite.annotations.Tool(name = "compute", description = "compute")
         public String compute(@io.kite.annotations.ToolParam(name = "x") int x) { return String.valueOf(x); }
-    }
-
-    @Test
-    void delegateCannotBeReadOnly() {
-        // The Tool constructor rejects readOnly on non-FUNCTION kinds. This is what keeps
-        // Agent.asTool safe even if a future path ever tried to set readOnly on a delegate.
-        var delegate = Agent.builder().model("gpt-test").name("d").build();
-        io.kite.internal.runtime.ToolInvoker invoker = (ctx, args) -> "x";
-        assertThatThrownBy(() -> new Tool(
-                "name", "desc", null, invoker, false,
-                Tool.Kind.DELEGATE, delegate, null, true))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("cannot be readOnly");
     }
 
     private static void sleepQuiet(long millis) {

@@ -3,7 +3,6 @@ package io.kite.internal.runtime;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.kite.Tool;
 import io.kite.ToolFailure;
-import io.kite.Tools;
 import io.kite.annotations.Ctx;
 import io.kite.annotations.Description;
 import io.kite.annotations.ToolParam;
@@ -21,7 +20,6 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Scans a tools-bean for {@link io.kite.annotations.Tool @Tool}-annotated methods and compiles
@@ -38,7 +36,7 @@ public final class ToolInvokerFactory {
         List<Method> annotated = Arrays.stream(beanClass.getMethods())
                 .filter(m -> m.isAnnotationPresent(io.kite.annotations.Tool.class))
                 .sorted((a, b) -> a.getName().compareTo(b.getName()))
-                .collect(Collectors.toList());
+                .toList();
         if (annotated.isEmpty()) {
             throw new IllegalArgumentException(
                     "Tools bean " + beanClass.getName() + " has no @Tool-annotated methods");
@@ -123,7 +121,7 @@ public final class ToolInvokerFactory {
         int ctxIdxFinal = ctxIndex;
         ToolInvoker invoker = new MethodHandleInvoker(name, handle, paramTypes, paramNames, ctxIdxFinal);
         boolean usesContext = ctxIndex >= 0;
-        return Tools.newFunctionTool(name, description, schema, invoker, usesContext, ann.readOnly());
+        return Tool.function(name, description, schema, invoker, usesContext, ann.readOnly());
     }
 
     /** ToolInvoker backed by a method handle bound to a bean instance. */

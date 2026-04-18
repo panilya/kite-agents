@@ -171,17 +171,13 @@ public final class RunnerCore {
             String routeName = routeToolName(route.name());
             String desc = "Transfer the conversation to " + route.name()
                     + (route.description().isEmpty() ? "" : ": " + route.description());
-            out.add(new ChatRequest.ToolSchema(routeName, desc, emptyObjectSchema()));
+            out.add(new ChatRequest.ToolSchema(routeName, desc, Tool.EMPTY_PARAMS_SCHEMA_JSON));
         }
         return out;
     }
 
     public static String routeToolName(String targetName) {
         return "transfer_to_" + targetName;
-    }
-
-    private static String emptyObjectSchema() {
-        return "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}";
     }
 
     /** Resolve a tool call that might be a route. Returns the target agent if so, null otherwise. */

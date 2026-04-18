@@ -137,7 +137,7 @@ public final class Agent<T> {
                 List.of("input"),
                 description,
                 true);
-        return new Tool(toolName, description, schema, invoker, false, Tool.Kind.DELEGATE, this, outputExtractor, false);
+        return Tool.delegate(toolName, description, schema, invoker, this, outputExtractor);
     }
 
     /** Start building a no-context (Void) agent. Model is set via {@link AgentBuilder#model(String)}. */
