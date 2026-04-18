@@ -29,24 +29,35 @@ public final class AnthropicProvider implements ModelProvider {
     private final String baseUrl;
     private final String version;
     private final HttpTransport http;
+    private final boolean ownsHttp;
     private final JsonCodec json;
     private final Duration requestTimeout;
 
     public AnthropicProvider(String apiKey) {
-        this(apiKey, "https://api.anthropic.com", DEFAULT_VERSION, new HttpTransport(), Duration.ofSeconds(120));
+        this(apiKey, "https://api.anthropic.com", DEFAULT_VERSION, new HttpTransport(), Duration.ofSeconds(120), true);
     }
 
     public AnthropicProvider(String apiKey, String baseUrl) {
-        this(apiKey, baseUrl, DEFAULT_VERSION, new HttpTransport(), Duration.ofSeconds(120));
+        this(apiKey, baseUrl, DEFAULT_VERSION, new HttpTransport(), Duration.ofSeconds(120), true);
     }
 
     public AnthropicProvider(String apiKey, String baseUrl, String version, HttpTransport http, Duration requestTimeout) {
+        this(apiKey, baseUrl, version, http, requestTimeout, false);
+    }
+
+    private AnthropicProvider(String apiKey, String baseUrl, String version, HttpTransport http, Duration requestTimeout, boolean ownsHttp) {
         this.apiKey = apiKey;
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.version = version;
         this.http = http;
+        this.ownsHttp = ownsHttp;
         this.json = JsonCodec.shared();
         this.requestTimeout = requestTimeout;
+    }
+
+    @Override
+    public void close() {
+        if (ownsHttp) http.close();
     }
 
     @Override

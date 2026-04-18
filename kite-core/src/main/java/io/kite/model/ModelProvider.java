@@ -10,7 +10,7 @@ import java.util.function.Consumer;
  * <p>Both {@link #chat} and {@link #chatStream} are first-class. Kite dispatches to whichever
  * matches the caller's entry point. Neither is implemented in terms of the other.
  */
-public interface ModelProvider {
+public interface ModelProvider extends AutoCloseable {
 
     /** True if this provider recognizes the given model name. */
     boolean supports(String modelName);
@@ -24,4 +24,8 @@ public interface ModelProvider {
      * (on failure). Blocks until the stream ends.
      */
     void chatStream(ChatRequest request, Consumer<ChatChunk> onChunk);
+
+    /** Release resources held by this provider (HTTP clients, thread pools, etc.). Default no-op. */
+    @Override
+    default void close() {}
 }

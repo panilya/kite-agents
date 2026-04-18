@@ -29,23 +29,34 @@ public final class OpenAiProvider implements ModelProvider {
     private final String apiKey;
     private final String baseUrl;
     private final HttpTransport http;
+    private final boolean ownsHttp;
     private final JsonCodec json;
     private final Duration requestTimeout;
 
     public OpenAiProvider(String apiKey) {
-        this(apiKey, "https://api.openai.com/v1", new HttpTransport(), Duration.ofSeconds(120));
+        this(apiKey, "https://api.openai.com/v1", new HttpTransport(), Duration.ofSeconds(120), true);
     }
 
     public OpenAiProvider(String apiKey, String baseUrl) {
-        this(apiKey, baseUrl, new HttpTransport(), Duration.ofSeconds(120));
+        this(apiKey, baseUrl, new HttpTransport(), Duration.ofSeconds(120), true);
     }
 
     public OpenAiProvider(String apiKey, String baseUrl, HttpTransport http, Duration requestTimeout) {
+        this(apiKey, baseUrl, http, requestTimeout, false);
+    }
+
+    private OpenAiProvider(String apiKey, String baseUrl, HttpTransport http, Duration requestTimeout, boolean ownsHttp) {
         this.apiKey = apiKey;
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.http = http;
+        this.ownsHttp = ownsHttp;
         this.json = JsonCodec.shared();
         this.requestTimeout = requestTimeout;
+    }
+
+    @Override
+    public void close() {
+        if (ownsHttp) http.close();
     }
 
     @Override

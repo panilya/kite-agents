@@ -81,6 +81,14 @@ public final class Kite implements AutoCloseable {
             System.err.println("[kite] tracer " + tracer.getClass().getName()
                     + " failed to close: " + e.getMessage());
         }
+        for (ModelProvider p : providers) {
+            try {
+                p.close();
+            } catch (Exception e) {
+                System.err.println("[kite] provider " + p.getClass().getName()
+                        + " failed to close: " + e.getMessage());
+            }
+        }
         vexec.shutdown();
     }
 }
