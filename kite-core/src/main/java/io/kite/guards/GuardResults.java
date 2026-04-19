@@ -29,11 +29,6 @@ public record GuardResults(
                 .orElse(null);
     }
 
-    public String blockReason() {
-        var b = blocking();
-        return b == null ? null : b.message();
-    }
-
     public boolean anyBlocked() {
         return blocking() != null;
     }

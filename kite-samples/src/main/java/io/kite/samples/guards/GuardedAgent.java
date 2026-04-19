@@ -8,6 +8,7 @@ import io.kite.Status;
 import io.kite.openai.OpenAiProvider;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Input and output guards.
@@ -34,13 +35,13 @@ public final class GuardedAgent {
                 .check(in -> {
                     var text = in.userText();
                     return text.toLowerCase().contains("hack")
-                            ? GuardDecision.block("I can't help with hacking.")
+                            ? GuardDecision.block(Map.of("message", "I can't help with hacking."))
                             : GuardDecision.allow();
                 });
 
         var noEmptyReply = Guard.output("no-empty-reply")
                 .check(in -> (in.generatedResponse() == null || in.generatedResponse().isBlank())
-                        ? GuardDecision.block("Model returned an empty response.")
+                        ? GuardDecision.block(Map.of("message", "Model returned an empty response."))
                         : GuardDecision.allow());
 
         try (var kite = Kite.builder()
@@ -64,7 +65,7 @@ public final class GuardedAgent {
         var reply = kite.run(agent, prompt);
         System.out.println("> " + prompt);
         if (reply.status() == Status.BLOCKED) {
-            System.out.println("  BLOCKED: " + reply.blockReason());
+            System.out.println("  BLOCKED: " + reply.guards().blocking().info().get("message"));
         } else {
             System.out.println("  OK: " + reply.text());
         }

@@ -1,8 +1,7 @@
 package io.kite.guards;
 
-import com.fasterxml.jackson.databind.JsonNode;
-
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * Runtime record of one guard check: which guard ran, in which phase, with what verdict, and
@@ -21,12 +20,7 @@ public record GuardOutcome(
     }
 
     /** Structured info from the decision, or null. */
-    public JsonNode info() {
+    public Map<String, Object> info() {
         return decision.info();
-    }
-
-    /** Human-readable block reason, or null on allow. */
-    public String message() {
-        return decision instanceof GuardDecision.Block b ? b.reason() : null;
     }
 }

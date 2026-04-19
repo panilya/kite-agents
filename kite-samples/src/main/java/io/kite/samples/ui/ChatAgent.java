@@ -92,7 +92,7 @@ final class ChatAgent {
                 .check(in -> {
                     var text = in.userText();
                     return text.toLowerCase().contains("hack")
-                            ? GuardDecision.block("I can't help with hacking.")
+                            ? GuardDecision.block(Map.of("message", "I can't help with hacking."))
                             : GuardDecision.allow();
                 });
     }
@@ -103,7 +103,7 @@ final class ChatAgent {
                 .check(in -> {
                     var text = in.userText();
                     return text.length() > 2000
-                            ? GuardDecision.block("Message is too long (max 2000 chars).")
+                            ? GuardDecision.block(Map.of("message", "Message is too long (max 2000 chars)."))
                             : GuardDecision.allow();
                 });
     }
@@ -111,7 +111,7 @@ final class ChatAgent {
     private static OutputGuard<UserCtx> noEmptyReplyGuard() {
         return Guard.<UserCtx>output("no-empty-reply")
                 .check(in -> (in.generatedResponse() == null || in.generatedResponse().isBlank())
-                        ? GuardDecision.block("Model returned an empty response.")
+                        ? GuardDecision.block(Map.of("message", "Model returned an empty response."))
                         : GuardDecision.allow());
     }
 }

@@ -31,10 +31,6 @@ public record Reply(
         return status == Status.BLOCKED;
     }
 
-    public String blockReason() {
-        return guards.blockReason();
-    }
-
     public <T> T output(Class<T> type) {
         if (structuredOutput == null) return null;
         return JsonCodec.shared().treeToValue(structuredOutput, type);
@@ -47,7 +43,7 @@ public record Reply(
     }
 
     public static Reply blocked(GuardResults guards, AgentRef agent, Usage usage, String traceId, List<Event> events) {
-        return new Reply(Status.BLOCKED, guards.blockReason(), agent, null, guards, usage, traceId, events);
+        return new Reply(Status.BLOCKED, null, agent, null, guards, usage, traceId, events);
     }
 
     public static Reply maxTurns(String lastText, AgentRef agent, GuardResults guards, Usage usage,

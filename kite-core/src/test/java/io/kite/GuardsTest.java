@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -32,7 +33,7 @@ class GuardsTest {
         });
         var fastBlock = Guard.input("fast-block").parallel().check(in -> {
             try { Thread.sleep(10); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            return GuardDecision.block("nope");
+            return GuardDecision.block(Map.of("message", "nope"));
         });
 
         var mock = MockModelProvider.builder().build();
@@ -46,7 +47,7 @@ class GuardsTest {
         Duration elapsed = Duration.between(start, Instant.now());
 
         assertThat(reply.status()).isEqualTo(Status.BLOCKED);
-        assertThat(reply.blockReason()).isEqualTo("nope");
+        assertThat(reply.guards().blocking().info()).containsEntry("message", "nope");
         assertThat(elapsed).isLessThan(Duration.ofSeconds(2));
         assertThat(slowFinished).isFalse();
         kite.close();
@@ -59,14 +60,14 @@ class GuardsTest {
                 .build();
         var kite = Kite.builder().provider(mock).tracing(io.kite.tracing.Tracing.off()).build();
         var profanityGuard = Guard.output("no-profanity").check(in ->
-                in.generatedResponse().contains("badword") ? GuardDecision.block("filtered") : GuardDecision.allow());
+                in.generatedResponse().contains("badword") ? GuardDecision.block(Map.of("message", "filtered")) : GuardDecision.allow());
         var agent = Agent.builder().model("gpt-test")
                 .outputGuards(List.of(profanityGuard))
                 .build();
 
         Reply reply = kite.run(agent, "hi");
         assertThat(reply.status()).isEqualTo(Status.BLOCKED);
-        assertThat(reply.blockReason()).isEqualTo("filtered");
+        assertThat(reply.guards().blocking().info()).containsEntry("message", "filtered");
         kite.close();
     }
 
@@ -124,7 +125,7 @@ class GuardsTest {
     void parallelGuardBlockDuringLlmInFlight() {
         var fastBlock = Guard.input("fast-block").parallel().check(in -> {
             sleepQuiet(50);
-            return GuardDecision.block("too scary");
+            return GuardDecision.block(Map.of("message", "too scary"));
         });
         var mock = MockModelProvider.builder()
                 .withLatency(Duration.ofSeconds(2))
@@ -142,7 +143,7 @@ class GuardsTest {
         Duration elapsed = Duration.between(start, Instant.now());
 
         assertThat(reply.status()).isEqualTo(Status.BLOCKED);
-        assertThat(reply.blockReason()).isEqualTo("too scary");
+        assertThat(reply.guards().blocking().info()).containsEntry("message", "too scary");
         assertThat(elapsed).isLessThan(Duration.ofMillis(500));
         assertThat(reply.usage()).isEqualTo(Usage.ZERO);
         assertThat(captured).noneMatch(e -> e instanceof TraceEvent.LlmResponse);
@@ -179,7 +180,7 @@ class GuardsTest {
                 .build();
         var slowBlock = Guard.input("slow-block").parallel().check(in -> {
             sleepQuiet(200);
-            return GuardDecision.block("late-block");
+            return GuardDecision.block(Map.of("message", "late-block"));
         });
         var mock = MockModelProvider.builder()
                 .respondToolCall("call-1", "should_not_run", "{}")
@@ -197,7 +198,7 @@ class GuardsTest {
         Reply reply = kite.run(agent, "hi");
 
         assertThat(reply.status()).isEqualTo(Status.BLOCKED);
-        assertThat(reply.blockReason()).isEqualTo("late-block");
+        assertThat(reply.guards().blocking().info()).containsEntry("message", "late-block");
         assertThat(toolRan).isFalse();
         assertThat(captured).noneMatch(e -> e instanceof TraceEvent.LlmResponse);
         assertThat(captured).noneMatch(e -> e instanceof TraceEvent.ToolCall);
@@ -208,7 +209,7 @@ class GuardsTest {
     void streamingBufferHoldsDeltasUntilGuardResolves() {
         var blockingGuard = Guard.input("buf-block").parallel()
                 .streamBehavior(StreamBehavior.BUFFER)
-                .check(in -> { sleepQuiet(100); return GuardDecision.block("nope"); });
+                .check(in -> { sleepQuiet(100); return GuardDecision.block(Map.of("message", "nope")); });
         List<ChatChunk> chunks = new ArrayList<>();
         chunks.add(new ChatChunk.TextDelta("hello "));
         chunks.add(new ChatChunk.TextDelta("world"));
@@ -249,7 +250,7 @@ class GuardsTest {
     @Test
     void streamingOutputGuardBlockHidesDeltas() {
         var profanityGuard = Guard.output("no-profanity").check(in ->
-                in.generatedResponse().contains("badword") ? GuardDecision.block("filtered") : GuardDecision.allow());
+                in.generatedResponse().contains("badword") ? GuardDecision.block(Map.of("message", "filtered")) : GuardDecision.allow());
         var mock = MockModelProvider.builder().streamText("this is ", "a badword response").build();
         var kite = Kite.builder().provider(mock).tracing(io.kite.tracing.Tracing.off()).build();
         var agent = Agent.builder().model("gpt-test")
@@ -261,7 +262,8 @@ class GuardsTest {
 
         assertThat(events).noneMatch(e -> e instanceof Event.Delta);
         assertThat(events).anyMatch(e ->
-                e instanceof Event.GuardCheck g && g.outcome().blocked() && "filtered".equals(g.outcome().message()));
+                e instanceof Event.GuardCheck g && g.outcome().blocked()
+                        && g.outcome().info() != null && "filtered".equals(g.outcome().info().get("message")));
         assertThat(events).anyMatch(e -> e instanceof Event.Done);
         kite.close();
     }
@@ -290,7 +292,7 @@ class GuardsTest {
     @Test
     void streamingOutputGuardOnlyGatesFinalTurn() {
         var badWordGuard = Guard.output("no-bad").check(in ->
-                in.generatedResponse().contains("badword") ? GuardDecision.block("filtered") : GuardDecision.allow());
+                in.generatedResponse().contains("badword") ? GuardDecision.block(Map.of("message", "filtered")) : GuardDecision.allow());
         var echo = Tool.create("echo")
                 .description("echo")
                 .execute(args -> "ok")
@@ -321,7 +323,8 @@ class GuardsTest {
                 .toList();
         assertThat(deltaTexts).containsExactly("thinking... ");
         assertThat(events).anyMatch(e ->
-                e instanceof Event.GuardCheck g && g.outcome().blocked() && "filtered".equals(g.outcome().message()));
+                e instanceof Event.GuardCheck g && g.outcome().blocked()
+                        && g.outcome().info() != null && "filtered".equals(g.outcome().info().get("message")));
         kite.close();
     }
 
@@ -329,7 +332,7 @@ class GuardsTest {
     void streamingPassthroughGatesAfterBlock() {
         var passthroughBlock = Guard.input("pt-block").parallel()
                 .streamBehavior(StreamBehavior.PASSTHROUGH)
-                .check(in -> { sleepQuiet(10); return GuardDecision.block("nope"); });
+                .check(in -> { sleepQuiet(10); return GuardDecision.block(Map.of("message", "nope")); });
         List<ChatChunk> chunks = new ArrayList<>();
         chunks.add(new ChatChunk.TextDelta("late"));
         chunks.add(new ChatChunk.Done(Usage.ZERO, "stop"));
@@ -352,7 +355,7 @@ class GuardsTest {
     void cancelledGuardsDoNotLeakTraceEventsAfterRunReturns() {
         var fastBlock = Guard.input("fast-block").parallel().check(in -> {
             sleepQuiet(10);
-            return GuardDecision.block("nope");
+            return GuardDecision.block(Map.of("message", "nope"));
         });
         var slowPass = Guard.input("slow-pass").parallel().check(in -> {
             sleepQuiet(300);

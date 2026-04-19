@@ -84,7 +84,7 @@ public final class StreamingGuardAgent {
                 case Event.GuardCheck gc -> {
                     if (gc.outcome().blocked()) {
                         System.out.printf("[+%4dms BLOCKED] guard=%s %s%n",
-                                ms, gc.outcome().name(), gc.outcome().message());
+                                ms, gc.outcome().name(), gc.outcome().info().get("message"));
                     }
                 }
                 case Event.Done done -> System.out.printf("[+%4dms done]   status=%s%n", ms, done.reply().status());

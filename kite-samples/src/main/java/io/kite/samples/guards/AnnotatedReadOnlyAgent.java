@@ -93,7 +93,7 @@ public final class AnnotatedReadOnlyAgent {
         var reply = kite.run(agent, prompt);
         long ms = Duration.between(start, Instant.now()).toMillis();
         if (reply.status() == Status.BLOCKED) {
-            System.out.println("  BLOCKED in " + ms + "ms: " + reply.blockReason());
+            System.out.println("  BLOCKED in " + ms + "ms: " + reply.guards().blocking().info().get("message"));
         } else {
             System.out.println("  OK in " + ms + "ms: " + reply.text());
         }

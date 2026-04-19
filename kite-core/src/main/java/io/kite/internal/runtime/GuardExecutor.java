@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
@@ -118,10 +119,10 @@ public final class GuardExecutor {
         try {
             decision = g.decide(input);
             if (decision == null) {
-                decision = GuardDecision.block("Guard '" + g.name() + "' returned null");
+                decision = GuardDecision.block(Map.of("message", "Guard '" + g.name() + "' returned null"));
             }
         } catch (Throwable t) {
-            decision = GuardDecision.block("Guard '" + g.name() + "' threw: " + t.getMessage());
+            decision = GuardDecision.block(Map.of("message", "Guard '" + g.name() + "' threw: " + t.getMessage()));
         }
         return new GuardOutcome(g.name(), g.phase(), decision, Duration.between(start, Instant.now()));
     }

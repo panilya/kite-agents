@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -64,7 +65,7 @@ class SpeculativeToolsTest {
         var invocations = new AtomicInteger();
         var slowBlock = Guard.input("slow-block").parallel().check(in -> {
             sleepQuiet(200);
-            return GuardDecision.block("denied");
+            return GuardDecision.block(Map.of("message", "denied"));
         });
         var readOnly = Tool.create("retrieve")
                 .description("RAG")
@@ -87,7 +88,7 @@ class SpeculativeToolsTest {
         Reply reply = kite.run(agent, "hi");
 
         assertThat(reply.status()).isEqualTo(Status.BLOCKED);
-        assertThat(reply.blockReason()).isEqualTo("denied");
+        assertThat(reply.guards().blocking().info()).containsEntry("message", "denied");
         assertThat(invocations).hasValueGreaterThanOrEqualTo(1);  // speculation happened
         assertThat(captured).noneMatch(e -> e instanceof TraceEvent.ToolResult);
         assertThat(captured).noneMatch(e -> e instanceof TraceEvent.ToolCall);

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -175,14 +176,14 @@ class RunnerTest {
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
         var block = Guard.input("block-all")
                 .blocking()
-                .check(in -> GuardDecision.block("nope"));
+                .check(in -> GuardDecision.block(Map.of("message", "nope")));
         var agent = Agent.builder().model("gpt-test")
                 .inputGuards(List.of(block))
                 .build();
 
         Reply reply = kite.run(agent, "anything");
         assertThat(reply.status()).isEqualTo(Status.BLOCKED);
-        assertThat(reply.blockReason()).isEqualTo("nope");
+        assertThat(reply.guards().blocking().info()).containsEntry("message", "nope");
         assertThat(mock.recorded()).isEmpty();
         kite.close();
     }

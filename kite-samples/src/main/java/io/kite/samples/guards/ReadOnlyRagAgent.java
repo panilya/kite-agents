@@ -88,7 +88,7 @@ public final class ReadOnlyRagAgent {
                     sleepQuiet(GUARD_LATENCY);
                     var text = in.userText();
                     return text.toLowerCase().contains("secret-project")
-                            ? GuardDecision.block("Topic is on the policy blocklist.")
+                            ? GuardDecision.block(Map.of("message", "Topic is on the policy blocklist."))
                             : GuardDecision.allow();
                 });
 
@@ -109,7 +109,7 @@ public final class ReadOnlyRagAgent {
         var reply = kite.run(agent, prompt);
         long ms = Duration.between(start, Instant.now()).toMillis();
         if (reply.status() == Status.BLOCKED) {
-            System.out.println("  BLOCKED in " + ms + "ms: " + reply.blockReason());
+            System.out.println("  BLOCKED in " + ms + "ms: " + reply.guards().blocking().info().get("message"));
         } else {
             System.out.println("  OK in " + ms + "ms: " + reply.text());
         }

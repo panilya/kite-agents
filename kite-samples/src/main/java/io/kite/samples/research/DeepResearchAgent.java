@@ -217,7 +217,7 @@ public final class DeepResearchAgent {
                 case Event.ToolResult tr -> progress.onToolResult(tr.name(), tr.elapsed());
                 case Event.GuardCheck gc -> {
                     if (gc.outcome().blocked()) {
-                        System.out.println("[blocked by " + gc.outcome().name() + "] " + gc.outcome().message());
+                        System.out.println("[blocked by " + gc.outcome().name() + "] " + gc.outcome().info().get("message"));
                     }
                 }
                 case Event.Done d -> finalReply[0] = d.reply();
@@ -235,7 +235,7 @@ public final class DeepResearchAgent {
         }
         System.out.println();
         switch (reply.status()) {
-            case BLOCKED -> System.out.println("BLOCKED: " + reply.blockReason());
+            case BLOCKED -> System.out.println("BLOCKED: " + reply.guards().blocking().info().get("message"));
             case MAX_TURNS -> {
                 System.out.println("MAX_TURNS reached. Partial result:");
                 System.out.println(reply.text());

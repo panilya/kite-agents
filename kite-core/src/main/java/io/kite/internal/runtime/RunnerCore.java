@@ -261,7 +261,9 @@ public final class RunnerCore {
                 var blocker = reply.guards().blocking();
                 payload.put("blocked", true);
                 payload.put("guard", blocker == null ? "" : blocker.name());
-                payload.put("message", reply.blockReason() == null ? "" : reply.blockReason());
+                if (blocker != null && blocker.info() != null) {
+                    payload.set("info", codec().mapper().valueToTree(blocker.info()));
+                }
             }
             case MAX_TURNS -> {
                 payload.put("max_turns", true);

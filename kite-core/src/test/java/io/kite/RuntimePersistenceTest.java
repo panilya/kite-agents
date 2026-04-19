@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,7 +61,7 @@ class RuntimePersistenceTest {
         var mock = MockModelProvider.builder().build();
         var store = new RecordingStore();
         var kite = Kite.builder().provider(mock).conversationStore(store).tracing(Tracing.off()).build();
-        var blocker = Guard.input("blk").blocking().check(in -> GuardDecision.block("nope"));
+        var blocker = Guard.input("blk").blocking().check(in -> GuardDecision.block(Map.of("message", "nope")));
         var agent = Agent.builder().model("gpt-test").inputGuards(List.of(blocker)).build();
 
         kite.run(agent, "hi", "conv-bk");

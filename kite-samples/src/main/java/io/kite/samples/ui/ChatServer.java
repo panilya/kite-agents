@@ -194,7 +194,9 @@ public final class ChatServer {
                     if (!gc.outcome().blocked()) break;
                     ObjectNode n = JSON.createObjectNode();
                     n.put("guard", gc.outcome().name());
-                    n.put("message", gc.outcome().message());
+                    if (gc.outcome().info() != null) {
+                        n.set("info", JSON.valueToTree(gc.outcome().info()));
+                    }
                     sink.send("blocked", JSON.writeValueAsString(n));
                 }
                 case Event.Done done -> {

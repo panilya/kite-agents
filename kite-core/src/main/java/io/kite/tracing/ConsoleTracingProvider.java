@@ -55,7 +55,7 @@ public final class ConsoleTracingProvider implements TracingProvider {
                 var o = g.outcome();
                 out.printf("[kite %s]   guard %s %s%s%n",
                         time(), o.name(), o.blocked() ? "BLOCK" : "PASS",
-                        o.blocked() && o.message() != null ? " (" + o.message() + ")" : "");
+                        o.blocked() && o.info() != null ? " " + o.info() : "");
             }
             case TraceEvent.Error e -> out.printf("[kite %s]   ERROR %s: %s%n",
                     time(), e.agent(), e.message());

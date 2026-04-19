@@ -10,6 +10,7 @@ import io.kite.openai.OpenAiProvider;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -42,7 +43,7 @@ public final class ParallelGuardsAgent {
                 .check(in -> {
                     var text = in.userText();
                     return SSN.matcher(text).find()
-                            ? GuardDecision.block("Input contains an SSN-like pattern.")
+                            ? GuardDecision.block(Map.of("message", "Input contains an SSN-like pattern."))
                             : GuardDecision.allow();
                 });
 
@@ -52,7 +53,7 @@ public final class ParallelGuardsAgent {
                     try { Thread.sleep(400); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
                     var text = in.userText();
                     return text.toLowerCase().contains("banned-topic")
-                            ? GuardDecision.block("Topic is on the policy blocklist.")
+                            ? GuardDecision.block(Map.of("message", "Topic is on the policy blocklist."))
                             : GuardDecision.allow();
                 });
 
@@ -79,7 +80,7 @@ public final class ParallelGuardsAgent {
         var reply = kite.run(agent, prompt);
         long ms = Duration.between(start, Instant.now()).toMillis();
         if (reply.status() == Status.BLOCKED) {
-            System.out.println("  BLOCKED in " + ms + "ms: " + reply.blockReason());
+            System.out.println("  BLOCKED in " + ms + "ms: " + reply.guards().blocking().info().get("message"));
         } else {
             System.out.println("  OK in " + ms + "ms: " + reply.text());
         }

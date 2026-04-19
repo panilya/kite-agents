@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -129,7 +130,7 @@ class DelegationTest {
                 .build();
         var kite = Kite.builder().provider(mock).tracing(Tracing.off()).build();
         var blocker = Guard.input("no-free").blocking()
-                .check(in -> GuardDecision.block("please upgrade"));
+                .check(in -> GuardDecision.block(Map.of("message", "please upgrade")));
         var helper = Agent.builder().model("gpt-test").name("helper")
                 .inputGuards(List.of(blocker))
                 .build();
@@ -146,7 +147,7 @@ class DelegationTest {
         var node = toolResultAt(mock, 1);
         assertThat(node.get("blocked").asBoolean()).isTrue();
         assertThat(node.get("guard").asText()).isEqualTo("no-free");
-        assertThat(node.get("message").asText()).isEqualTo("please upgrade");
+        assertThat(node.get("info").get("message").asText()).isEqualTo("please upgrade");
         kite.close();
     }
 

@@ -98,7 +98,7 @@ function handleEvent(event, data, bubble, events) {
       appendEvent(events, `↪ transfer ${data.from} → ${data.to}`);
       break;
     case "blocked":
-      showBanner(`Blocked by ${data.guard}: ${data.message}`);
+      showBanner(`Blocked by ${data.guard}: ${data.info?.message ?? ""}`);
       bubble.remove();
       break;
     case "done":

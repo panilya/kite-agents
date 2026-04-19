@@ -9,6 +9,7 @@ import io.kite.annotations.Description;
 import io.kite.openai.OpenAiProvider;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * An LLM-backed input guard: a lightweight "moderator" agent classifies the user's message
@@ -58,7 +59,7 @@ public final class LlmGuardAgent {
                         Verdict v = kite.run(moderator, text).output(Verdict.class);
                         return v.safe()
                                 ? GuardDecision.allow()
-                                : GuardDecision.block("Moderator flagged input: " + v.reason());
+                                : GuardDecision.block(Map.of("message", "Moderator flagged input: " + v.reason()));
                     });
 
             var assistant = Agent.builder()
@@ -77,7 +78,7 @@ public final class LlmGuardAgent {
         var reply = kite.run(agent, prompt);
         System.out.println("> " + prompt);
         if (reply.status() == Status.BLOCKED) {
-            System.out.println("  BLOCKED: " + reply.blockReason());
+            System.out.println("  BLOCKED: " + reply.guards().blocking().info().get("message"));
         } else {
             System.out.println("  OK: " + reply.text());
         }
